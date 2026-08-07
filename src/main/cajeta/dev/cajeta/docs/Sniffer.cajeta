@@ -79,6 +79,8 @@ public final class Sniffer {
         // Signals: '#' heading at a line start, "```" fence, "- " item,
         // "[x](y)" link. Two distinct signals decide.
         int64 signals = 0;
+        // A document OPENING with "# " is a heading-led file — strong.
+        if (n >= 2 && b[0] == 35 && b[1] == 32) { signals = signals + 2; }
         boolean lineStart = true;
         int64 i = 0;
         while (i < n && i < 4096) {

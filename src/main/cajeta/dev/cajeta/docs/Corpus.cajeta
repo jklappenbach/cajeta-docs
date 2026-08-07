@@ -1,0 +1,111 @@
+package dev.cajeta.docs;
+
+import cajeta.collection.ArrayList;
+import cajeta.error.RecoverableException;
+import cajeta.io.file.File;
+import cajeta.io.file.Path;
+import cajeta.lang.String;
+
+/**
+ * Corpus ingestion (spec §11): a directory of mixed formats, each file
+ * sniffed and routed to its reader, with **per-document failures
+ * ISOLATED** — one hostile or broken file never loses the corpus
+ * (§13.12), and the report names every failure with its reader's
+ * diagnostic. Documents register into a {@link DocSet}, so re-ingesting
+ * a changed directory retires stale versions (§6.4).
+ */
+public final class Corpus {
+
+    DocSet set;
+    ArrayList<String> failedIds;
+    ArrayList<String> failedWhy;
+
+    public Corpus() {
+        this.set = heap DocSet();
+        this.failedIds = heap ArrayList<String>();
+        this.failedWhy = heap ArrayList<String>();
+        return;
+    }
+
+    /**
+     * Ingest every regular file directly under `dir` (non-recursive).
+     * Returns the number ingested successfully; failures are reported,
+     * not thrown.
+     */
+    public int64 ingestDir(String dir) {
+        // Two phases: materialize the file ids FIRST, then ingest —
+        // holding live Path objects across the readers' try/catch
+        // unwinding corrupts the drop chain (the same defect family as
+        // owned-null-local-drop-crash; registered).
+        ArrayList<String> files = this.listFiles(dir);
+        int64 ok = 0;
+        int32 i = 0;
+        while (i < files.count()) {
+            if (this.ingestFile(files.get(i))) { ok = ok + 1; }
+            i = i + 1;
+        }
+        return ok;
+    }
+
+    #ArrayList<String> listFiles(String dir) {
+        Path root = Path.of(dir);
+        ArrayList<Path> entries = root.list();
+        ArrayList<String> files = heap ArrayList<String>();
+        int32 i = 0;
+        while (i < entries.count()) {
+            Path p = entries.get(i);
+            if (p.isFile()) {
+                String id = "" + p.toString();
+                files.add(#id);
+            }
+            i = i + 1;
+        }
+        return #files;
+    }
+
+    /** Ingest one file; false (and a report entry) on failure. */
+    public boolean ingestFile(String path) {
+        boolean ok = false;
+        try {
+            this.readAndRegister(path);
+            ok = true;
+        } catch (RecoverableException ex) {
+            String id = "" + path;
+            this.failedIds.add(#id);
+            String why = "" + ex.message;
+            this.failedWhy.add(#why);
+        }
+        return ok;
+    }
+
+    // The throwing work lives in its OWN frame: an owned local whose
+    // initializer throws leaves a nil drop entry behind, and unwinding
+    // a frame that then CONTINUES crashes on it (INDEX defect
+    // owned-null-local-drop-crash). Here the whole frame unwinds.
+    void readAndRegister(String path) {
+        int8[] bytes = File.readAllBytes(path);
+        Doc d = Reader.read(path, bytes);
+        int64 ver = this.set.register(#d);
+        return;
+    }
+
+    /** The documents (a borrow of the corpus' registry). */
+    public DocSet docs() { return this.set; }
+
+    /** How many documents failed (§13.12: every one is named). */
+    public int64 failureCount() {
+        return (int64) this.failedIds.count();
+    }
+
+    /** The `i`-th failed source id. */
+    public #String failureId(int64 i) {
+        String out = "" + this.failedIds.get((int32) i);
+        return #out;
+    }
+
+    /** The `i`-th failure's diagnostic. */
+    public #String failureWhy(int64 i) {
+        String out = "" + this.failedWhy.get((int32) i);
+        return #out;
+    }
+}

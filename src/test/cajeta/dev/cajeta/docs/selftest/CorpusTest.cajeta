@@ -1,0 +1,58 @@
+package dev.cajeta.docs.selftest;
+
+import dev.cajeta.unit.Assert;
+import cajeta.io.file.File;
+import cajeta.lang.String;
+import dev.cajeta.docs.Corpus;
+import dev.cajeta.docs.Doc;
+import dev.cajeta.docs.NodeKind;
+
+/**
+ * cajeta-docs U8 — corpus ingestion (8.1.1, §13.12): mixed formats
+ * route to their readers, a failing document is ISOLATED and NAMED,
+ * and the rest of the corpus survives.
+ */
+public class CorpusTest {
+
+    public CorpusTest() { return; }
+
+    @Test
+    public void mixedDirWithFailuresSurvives() {
+        String dir = Fx.root() + "/corpus-tmp";
+        // Build the directory fresh each run.
+        String f1 = dir + "/a.md";
+        String f2 = dir + "/b.csv";
+        String f3 = dir + "/broken.docx";
+        String f4 = dir + "/c.txt";
+        CorpusTest.write(f1, "# Alpha\n\nBody text here.\n");
+        CorpusTest.write(f2, "x,y\n1,2\n");
+        // A zip magic with no reader — must fail NAMED, not kill the run.
+        int8[] zip = heap int8[8];
+        zip[0] = 80; zip[1] = 75; zip[2] = 3; zip[3] = 4;
+        File.writeAllBytes(f3, zip, (int32) 8);
+        CorpusTest.write(f4, "Plain closing text.\n");
+
+        Corpus c = heap Corpus();
+        int64 ok = c.ingestDir(dir);
+        Assert.isTrue(ok >= 3);
+        Assert.equals(c.failureCount(), (int64) 1);
+        Assert.isTrue(c.failureId((int64) 0).contains("broken.docx"));
+        Assert.isTrue(c.failureWhy((int64) 0).contains("OOXML"));
+
+        // The healthy documents are all present and structured.
+        Doc md = c.docs().active(f1);
+        Assert.isTrue(md != null);
+        Assert.equals((int64) md.nodesOfKind(NodeKind.SECTION()).count(),
+            (int64) 1);
+        Doc csv = c.docs().active(f2);
+        Assert.equals((int64) csv.nodesOfKind(NodeKind.TABLE()).count(),
+            (int64) 1);
+        return;
+    }
+
+    static void write(String path, String content) {
+        int8[] b = content.toBytes();
+        File.writeAllBytes(path, b, (int32) b.count());
+        return;
+    }
+}

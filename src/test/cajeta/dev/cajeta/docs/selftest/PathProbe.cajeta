@@ -1,0 +1,102 @@
+package dev.cajeta.docs.selftest;
+
+import dev.cajeta.unit.Assert;
+import cajeta.collection.ArrayList;
+import cajeta.io.file.File;
+import cajeta.io.file.Path;
+import cajeta.lang.String;
+import dev.cajeta.docs.Doc;
+import dev.cajeta.docs.DocSet;
+import dev.cajeta.docs.Corpus;
+import dev.cajeta.docs.Reader;
+
+public class PathProbe {
+    public PathProbe() { return; }
+
+    @Test
+    public void listWorks() {
+        String dir = Fx.root() + "/corpus-tmp";
+        String f = dir + "/probe.txt";
+        int8[] b = "probe\n".toBytes();
+        File.writeAllBytes(f, b, (int32) b.count());
+        ArrayList<Path> entries = Path.of(dir).list();
+        Assert.isTrue(entries.count() >= 1);
+        int32 i = 0;
+        while (i < entries.count()) {
+            Path p = entries.get(i);
+            if (p.isFile()) {
+                String id = p.toString();
+                Assert.isTrue(id.count() > 0);
+            }
+            i = i + 1;
+        }
+        return;
+    }
+
+    @Test
+    public void parseLoopWithoutRegistry() {
+        String dir = Fx.root() + "/corpus-tmp";
+        String f1 = dir + "/a.md";
+        int8[] b1 = "# Alpha\n\nBody text here.\n".toBytes();
+        File.writeAllBytes(f1, b1, (int32) b1.count());
+        String f2 = dir + "/c.txt";
+        int8[] b2 = "Plain closing text.\n".toBytes();
+        File.writeAllBytes(f2, b2, (int32) b2.count());
+        int64 n = 0;
+        int64 iter = 0;
+        while (iter < 2) {
+            String path = f1;
+            if (iter == 1) { path = f2; }
+            int8[] bytes = File.readAllBytes(path);
+            Doc d = Reader.read(path, bytes);
+            n = n + d.nodeCount();
+            iter = iter + 1;
+        }
+        Assert.isTrue(n > 0);
+        return;
+    }
+
+    @Test
+    public void parseLoopWithRegistry() {
+        String dir = Fx.root() + "/corpus-tmp";
+        String f1 = dir + "/a.md";
+        String f2 = dir + "/c.txt";
+        DocSet set = heap DocSet();
+        int64 iter = 0;
+        while (iter < 2) {
+            String path = f1;
+            if (iter == 1) { path = f2; }
+            int8[] bytes = File.readAllBytes(path);
+            Doc d = Reader.read(path, bytes);
+            int64 ver = set.register(#d);
+            iter = iter + 1;
+        }
+        Doc got = set.active(f1);
+        Assert.isTrue(got != null);
+        Assert.isTrue(got.nodeCount() > 0);
+        return;
+    }
+
+    @Test
+    public void corpusIngestFileDirect() {
+        String dir = Fx.root() + "/corpus-tmp";
+        String f1 = dir + "/a.md";
+        String f2 = dir + "/c.txt";
+        Corpus c = heap Corpus();
+        Assert.isTrue(c.ingestFile(f1));
+        Assert.isTrue(c.ingestFile(f2));
+        Assert.equals(c.failureCount(), (int64) 0);
+        Doc got = c.docs().active(f1);
+        Assert.isTrue(got != null);
+        return;
+    }
+
+    @Test
+    public void corpusIngestDirWhole() {
+        String dir = Fx.root() + "/corpus-tmp";
+        Corpus c = heap Corpus();
+        int64 ok = c.ingestDir(dir);
+        Assert.isTrue(ok >= 2);
+        return;
+    }
+}
