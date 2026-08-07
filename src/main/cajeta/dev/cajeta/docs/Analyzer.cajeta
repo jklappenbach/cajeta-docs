@@ -1,0 +1,254 @@
+package dev.cajeta.docs;
+
+import cajeta.collection.ArrayList;
+import cajeta.collection.HashSet;
+import cajeta.lang.Int64;
+import cajeta.lang.String;
+import cajeta.lang.StringBuilder;
+
+/**
+ * The configurable analysis chain (spec §7, §8): normalization →
+ * tokenization → stopword removal, ONE object reused verbatim at
+ * ingest and at query time (§8's reuse requirement — a mismatched
+ * query chain silently retrieves badly).
+ *
+ * **Normalization is `cajeta.lang.String`'s** (§7.1 — no second
+ * implementation): the form is stated (`"nfc"`, `"nfd"`, `"nfkc"`,
+ * `"nfkd"`, or `"none"`), case folding is explicit, and
+ * `stripDefaultIgnorables` removes soft hyphens and zero-width
+ * characters (§7.2; NFKC decomposes ligatures).
+ *
+ * **Tokenizer rules are documented and testable** (§8.1): `"word"`
+ * (runs of letters/digits — any byte ≥ 0x80 counts as a letter, so
+ * UTF-8 text stays whole), `"whitespace"` (runs of non-whitespace), or
+ * custom delimiter characters. Same input → same output, always
+ * (§8.6).
+ *
+ * **The default English stopword list is documented here** (§7.3), can
+ * be replaced, or disabled entirely: a, an, and, are, as, at, be,
+ * been, but, by, can, could, did, do, does, for, from, had, has,
+ * have, he, her, here, his, i, if, in, is, it, its, me, my, no, not,
+ * of, on, or, our, she, so, than, that, the, then, there, these,
+ * they, this, those, to, was, we, were, will, with, would, you, your.
+ */
+public final class Analyzer {
+
+    String form;         // "nfc"|"nfd"|"nfkc"|"nfkd"|"none"
+    boolean fold;
+    boolean stripIgn;
+    String mode;         // "word"|"whitespace"|"custom"
+    String delims;
+    boolean stopwordsOn;
+    HashSet<String> stops;
+
+    /** The default chain: NFKC + case fold + strip ignorables, word
+     *  tokens, default English stopwords. */
+    public Analyzer() {
+        this.form = "nfkc";
+        this.fold = true;
+        this.stripIgn = true;
+        this.mode = "word";
+        this.delims = "";
+        this.stopwordsOn = true;
+        this.stops = Analyzer.defaultStops();
+        return;
+    }
+
+    /** Normalization form: "nfc"|"nfd"|"nfkc"|"nfkd"|"none" (§7.1). */
+    public void setForm(String form) {
+        if (!form.equals("nfc") && !form.equals("nfd")
+            && !form.equals("nfkc") && !form.equals("nfkd")
+            && !form.equals("none")) {
+            throw heap DocsException("Analyzer: unknown form \"" + form
+                + "\"");
+        }
+        this.form = "" + form;
+        return;
+    }
+
+    /** Case folding, explicit (§7.1). */
+    public void setCaseFold(boolean on) { this.fold = on; return; }
+
+    /** Strip soft hyphens / zero-width characters (§7.2). */
+    public void setStripIgnorables(boolean on) {
+        this.stripIgn = on;
+        return;
+    }
+
+    /** Tokenizer: "word" or "whitespace" (§8.1). */
+    public void setTokenizer(String mode) {
+        if (!mode.equals("word") && !mode.equals("whitespace")) {
+            throw heap DocsException("Analyzer: tokenizer must be "
+                + "\"word\" or \"whitespace\" — for a custom rule use "
+                + "setDelimiters");
+        }
+        this.mode = "" + mode;
+        return;
+    }
+
+    /** A custom rule: split on exactly these delimiter characters. */
+    public void setDelimiters(String delims) {
+        this.mode = "custom";
+        this.delims = "" + delims;
+        return;
+    }
+
+    /** Replace the stopword list (§7.3). */
+    public void setStopwords(String[] words) {
+        HashSet<String> s = heap HashSet<String>();
+        int64 i = 0;
+        while (i < (int64) words.count()) {
+            String w = "" + words[i];
+            s.add(#w);
+            i = i + 1;
+        }
+        this.stops = #s;
+        this.stopwordsOn = true;
+        return;
+    }
+
+    /** Disable stopword removal entirely (§7.3). */
+    public void setStopwordsEnabled(boolean on) {
+        this.stopwordsOn = on;
+        return;
+    }
+
+    /** Normalize only (the §7 step alone). */
+    public #String normalize(String text) {
+        String cur = "" + text;
+        if (this.form.equals("nfc")) { cur = cur.nfc(); }
+        else if (this.form.equals("nfd")) { cur = cur.nfd(); }
+        else if (this.form.equals("nfkc")) { cur = cur.nfkc(); }
+        else if (this.form.equals("nfkd")) { cur = cur.nfkd(); }
+        if (this.stripIgn) { cur = cur.stripDefaultIgnorables(); }
+        if (this.fold) { cur = cur.caseFold(); }
+        return #cur;
+    }
+
+    /** The full chain: normalize → tokenize → stopwords (§8.6:
+     *  deterministic — same text, same result, at ingest or query). */
+    public #TokenList analyze(String text) {
+        String norm = this.normalize(text);
+        ArrayList<String> terms = heap ArrayList<String>();
+        ArrayList<Int64> los = heap ArrayList<Int64>();
+        ArrayList<Int64> his = heap ArrayList<Int64>();
+        int64 n = norm.count();
+        int64 i = 0;
+        while (i < n) {
+            // Skip separators.
+            while (i < n && this.isSep(norm.charAt((int32) i))) {
+                i = i + 1;
+            }
+            if (i >= n) { break; }
+            int64 lo = i;
+            while (i < n && !this.isSep(norm.charAt((int32) i))) {
+                i = i + 1;
+            }
+            StringBuilder sb = heap StringBuilder();
+            int64 t = lo;
+            while (t < i) {
+                int8[] one = heap int8[1];
+                one[0] = norm.charAt((int32) t);
+                sb.appendBytes(one, (int32) 0, (int32) 1);
+                t = t + 1;
+            }
+            String term = sb.toString();
+            boolean keep = true;
+            if (this.stopwordsOn && this.stops.contains(term)) {
+                keep = false;
+            }
+            if (keep) {
+                terms.add(#term);
+                los.add(Int64.of(lo));
+                his.add(Int64.of(i));
+            }
+        }
+        int64 m = (int64) terms.count();
+        String[] ta = heap String[m];
+        int64[] la = heap int64[m];
+        int64[] ha = heap int64[m];
+        int64 k = 0;
+        while (k < m) {
+            ta[k] = "" + terms.get((int32) k);
+            la[k] = los.get((int32) k).value();
+            ha[k] = his.get((int32) k).value();
+            k = k + 1;
+        }
+        TokenList out = heap TokenList(#ta, #la, #ha);
+        return #out;
+    }
+
+    /** Word n-grams over `[lo, hi]` (§8.5), space-joined. */
+    public #String[] ngrams(TokenList tokens, int64 lo, int64 hi) {
+        if (lo < 1 || hi < lo) {
+            throw heap DocsException("Analyzer.ngrams: need 1 <= lo <= hi");
+        }
+        ArrayList<String> out = heap ArrayList<String>();
+        int64 nt = tokens.count();
+        int64 k = lo;
+        while (k <= hi) {
+            int64 s = 0;
+            while (s + k <= nt) {
+                StringBuilder sb = heap StringBuilder();
+                int64 j = 0;
+                while (j < k) {
+                    if (j > 0) { sb.append(" "); }
+                    sb.append(tokens.term(s + j));
+                    j = j + 1;
+                }
+                String g = sb.toString();
+                out.add(#g);
+                s = s + 1;
+            }
+            k = k + 1;
+        }
+        int64 m = (int64) out.count();
+        String[] arr = heap String[m];
+        int64 t = 0;
+        while (t < m) {
+            arr[t] = "" + out.get((int32) t);
+            t = t + 1;
+        }
+        return #arr;
+    }
+
+    boolean isSep(int8 c) {
+        if (this.mode.equals("word")) {
+            if (c >= 97 && c <= 122) { return false; }
+            if (c >= 65 && c <= 90) { return false; }
+            if (c >= 48 && c <= 57) { return false; }
+            if (c < 0) { return false; }               // UTF-8 tail/lead
+            return true;
+        }
+        if (this.mode.equals("whitespace")) {
+            return c == 32 || c == 9 || c == 10 || c == 13;
+        }
+        // custom delimiters
+        int64 n = this.delims.count();
+        int64 i = 0;
+        while (i < n) {
+            if (this.delims.charAt((int32) i) == c) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    static #HashSet<String> defaultStops() {
+        String all = "a an and are as at be been but by can could did do "
+            + "does for from had has have he her here his i if in is it "
+            + "its me my no not of on or our she so than that the then "
+            + "there these they this those to was we were will with "
+            + "would you your";
+        HashSet<String> s = heap HashSet<String>();
+        int64 n = all.count();
+        int64 i = 0;
+        while (i < n) {
+            int64 lo = i;
+            while (i < n && all.charAt((int32) i) != 32) { i = i + 1; }
+            String w = all.substring((int32) lo, (int32) i);
+            s.add(#w);
+            i = i + 1;
+        }
+        return #s;
+    }
+}

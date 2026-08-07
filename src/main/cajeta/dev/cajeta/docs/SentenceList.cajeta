@@ -1,0 +1,23 @@
+package dev.cajeta.docs;
+
+/** Sentence `[start, end)` ranges over an analyzed string (spec §8.3). */
+public final class SentenceList {
+
+    int64[] lo;
+    int64[] hi;
+
+    SentenceList(#int64[] lo, #int64[] hi) {
+        this.lo #= lo;
+        this.hi #= hi;
+        return;
+    }
+
+    /** Number of sentences. */
+    public int64 count() { return (int64) this.lo.count(); }
+
+    /** Range start of sentence `i`. */
+    public int64 startOf(int64 i) { return this.lo[i]; }
+
+    /** Exclusive range end of sentence `i`. */
+    public int64 endOf(int64 i) { return this.hi[i]; }
+}

@@ -1,0 +1,37 @@
+package dev.cajeta.docs;
+
+import cajeta.lang.String;
+
+/**
+ * Tokens with their OFFSET RANGES in the source (spec §8.2): any match
+ * traces back to its position, which is what provenance-preserving
+ * retrieval needs. Byte offsets over the analyzed string.
+ */
+public final class TokenList {
+
+    String[] terms;
+    int64[] lo;
+    int64[] hi;
+
+    TokenList(#String[] terms, #int64[] lo, #int64[] hi) {
+        this.terms #= terms;
+        this.lo #= lo;
+        this.hi #= hi;
+        return;
+    }
+
+    /** Number of tokens. */
+    public int64 count() { return (int64) this.terms.count(); }
+
+    /** The `i`-th term. */
+    public #String term(int64 i) {
+        String out = "" + this.terms[i];
+        return #out;
+    }
+
+    /** Source-offset start of the `i`-th token. */
+    public int64 startOf(int64 i) { return this.lo[i]; }
+
+    /** Source-offset end (exclusive) of the `i`-th token. */
+    public int64 endOf(int64 i) { return this.hi[i]; }
+}

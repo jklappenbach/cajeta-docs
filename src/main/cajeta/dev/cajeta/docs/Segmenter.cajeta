@@ -1,0 +1,167 @@
+package dev.cajeta.docs;
+
+import cajeta.collection.ArrayList;
+import cajeta.collection.HashSet;
+import cajeta.lang.Int64;
+import cajeta.lang.String;
+
+/**
+ * Rule-based sentence segmentation (spec §8.3–§8.4, §12.6 resolved:
+ * rules now, the seam for a model later — swap THIS class, keep the
+ * ranges contract). A boundary is `[.!?]` (plus a closing quote) whose
+ * successor is whitespace-then-capital (or end), EXCEPT:
+ *
+ * - the period ends a known ABBREVIATION (`dr`, `mr`, `mrs`, `ms`,
+ *   `prof`, `fig`, `st`, `vs`, `etc`, `al`, `no`, `vol`, `pp`, `e`,
+ *   `i`, `g`, `approx`, `dept`, `est`, `jr`, `sr`) — `Dr. Smith`,
+ *   `Fig. 2`, `et al. citations` do not break;
+ * - a DECIMAL: digit `.` digit never breaks (`3.14`);
+ * - an ELLIPSIS `...` breaks only when followed by a capital;
+ * - a quoted end `."` keeps the closing quote inside the sentence.
+ *
+ * Returns `[start, end)` ranges over the input; a sentence spanning a
+ * line or page break is ONE sentence, because segmentation runs over
+ * the model's continuous text and pages are orthogonal (§8.4).
+ */
+public final class Segmenter {
+
+    HashSet<String> abbrevs;
+
+    public Segmenter() {
+        String all = "dr mr mrs ms prof fig st vs etc al no vol pp e i g "
+            + "approx dept est jr sr";
+        HashSet<String> s = heap HashSet<String>();
+        int64 n = all.count();
+        int64 i = 0;
+        while (i < n) {
+            int64 lo = i;
+            while (i < n && all.charAt((int32) i) != 32) { i = i + 1; }
+            String w = all.substring((int32) lo, (int32) i);
+            s.add(#w);
+            i = i + 1;
+        }
+        this.abbrevs = #s;
+        return;
+    }
+
+    /** Sentence `[start, end)` ranges over `text`. */
+    public #SentenceList segment(String text) {
+        ArrayList<Int64> los = heap ArrayList<Int64>();
+        ArrayList<Int64> his = heap ArrayList<Int64>();
+        int64 n = text.count();
+        int64 start = 0;
+        int64 i = 0;
+        while (i < n) {
+            int8 c = text.charAt((int32) i);
+            if (c == 46 || c == 33 || c == 63) {       // . ! ?
+                int64 endPos = i + 1;
+                // Ellipsis: consume the run of dots.
+                boolean ellipsis = false;
+                while (endPos < n && text.charAt((int32) endPos) == 46) {
+                    endPos = endPos + 1;
+                    ellipsis = true;
+                }
+                // A closing quote stays inside the sentence.
+                if (endPos < n && text.charAt((int32) endPos) == 34) {
+                    endPos = endPos + 1;
+                }
+                boolean brk = true;
+                if (c == 46 && !ellipsis) {
+                    // Decimal?
+                    if (i > 0 && i + 1 < n
+                        && Segmenter.isDigit(text.charAt((int32) (i - 1)))
+                        && Segmenter.isDigit(text.charAt((int32) (i + 1)))) {
+                        brk = false;
+                    }
+                    // Abbreviation?
+                    if (brk && this.priorWordIsAbbrev(text, i)) {
+                        brk = false;
+                    }
+                }
+                if (brk) {
+                    // The successor must be end-of-text or ws-then-
+                    // capital/quote/digit; ellipsis demands a capital.
+                    int64 j = endPos;
+                    while (j < n && (text.charAt((int32) j) == 32
+                           || text.charAt((int32) j) == 10
+                           || text.charAt((int32) j) == 13
+                           || text.charAt((int32) j) == 9)) {
+                        j = j + 1;
+                    }
+                    if (j >= n) {
+                        // end of text — the boundary stands
+                    } else {
+                        int8 nx = text.charAt((int32) j);
+                        boolean upperNext = nx >= 65 && nx <= 90;
+                        boolean quoteNext = nx == 34;
+                        boolean digitNext = Segmenter.isDigit(nx);
+                        if (ellipsis) {
+                            if (!upperNext) { brk = false; }
+                        } else if (!upperNext && !quoteNext
+                                   && !digitNext) {
+                            brk = false;
+                        }
+                    }
+                }
+                if (brk) {
+                    los.add(Int64.of(start));
+                    his.add(Int64.of(endPos));
+                    // Skip trailing whitespace to the next start.
+                    int64 j = endPos;
+                    while (j < n && (text.charAt((int32) j) == 32
+                           || text.charAt((int32) j) == 10
+                           || text.charAt((int32) j) == 13
+                           || text.charAt((int32) j) == 9)) {
+                        j = j + 1;
+                    }
+                    start = j;
+                    i = j;
+                } else {
+                    i = endPos;
+                }
+            } else {
+                i = i + 1;
+            }
+        }
+        if (start < n) {
+            // Trailing text without terminal punctuation is a sentence.
+            int64 hi = n;
+            while (hi > start && (text.charAt((int32) (hi - 1)) == 10
+                   || text.charAt((int32) (hi - 1)) == 13
+                   || text.charAt((int32) (hi - 1)) == 32)) {
+                hi = hi - 1;
+            }
+            if (hi > start) {
+                los.add(Int64.of(start));
+                his.add(Int64.of(hi));
+            }
+        }
+        int64 m = (int64) los.count();
+        int64[] la = heap int64[m];
+        int64[] ha = heap int64[m];
+        int64 k = 0;
+        while (k < m) {
+            la[k] = los.get((int32) k).value();
+            ha[k] = his.get((int32) k).value();
+            k = k + 1;
+        }
+        SentenceList out = heap SentenceList(#la, #ha);
+        return #out;
+    }
+
+    boolean priorWordIsAbbrev(String text, int64 dot) {
+        int64 lo = dot;
+        while (lo > 0) {
+            int8 c = text.charAt((int32) (lo - 1));
+            boolean letter = (c >= 97 && c <= 122)
+                || (c >= 65 && c <= 90);
+            if (!letter) { break; }
+            lo = lo - 1;
+        }
+        if (lo == dot) { return false; }
+        String w = text.substring((int32) lo, (int32) dot).toLowerCase();
+        return this.abbrevs.contains(w);
+    }
+
+    static boolean isDigit(int8 c) { return c >= 48 && c <= 57; }
+}
