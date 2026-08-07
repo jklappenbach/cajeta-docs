@@ -1,0 +1,188 @@
+package dev.cajeta.docs;
+
+import cajeta.codec.csv.CsvReader;
+import cajeta.codec.json.JsonArray;
+import cajeta.codec.json.JsonObject;
+import cajeta.codec.json.JsonReader;
+import cajeta.codec.json.JsonValue;
+import cajeta.collection.ArrayList;
+import cajeta.lang.String;
+import cajeta.lang.StringBuilder;
+
+/**
+ * CSV and JSON readers, REUSING `cajeta.codec` (spec §4.6 — no second
+ * CSV parser, no second JSON parser):
+ *
+ * - **CSV** → one structured table: the first row is the header, every
+ *   row must match its width (a ragged row is a diagnostic naming the
+ *   row, §4.9).
+ * - **JSON** → an object becomes `key: value` paragraphs (nested
+ *   objects flatten with dotted paths); an ARRAY OF FLAT OBJECTS
+ *   becomes a structured table. Malformed JSON surfaces as a
+ *   diagnostic naming the document.
+ */
+public final class CsvJsonReader {
+
+    public static #Doc readCsv(String sourceId, int8[] bytes) {
+        DocBuilder b = heap DocBuilder(sourceId);
+        CsvReader r = heap CsvReader(bytes, (int64) bytes.count());
+        ArrayList<String> cells = heap ArrayList<String>();
+        int64 cols = -1;
+        int64 rowNo = 0;
+        while (r.nextRow()) {
+            int32 fc = r.fieldCount();
+            if (cols < 0) { cols = (int64) fc; }
+            else if ((int64) fc != cols) {
+                throw heap DocsException("CsvReader: " + sourceId
+                    + ": row " + rowNo + " has " + (int64) fc
+                    + " fields, expected " + cols);
+            }
+            int32 f = 0;
+            while (f < fc) {
+                int8[] raw = r.field(f);
+                StringBuilder sb = heap StringBuilder();
+                sb.appendBytes(raw, (int32) 0, (int32) raw.count());
+                String v = sb.toString();
+                cells.add(#v);
+                f = f + 1;
+            }
+            rowNo = rowNo + 1;
+        }
+        if (rowNo < 1 || cols < 1) {
+            throw heap DocsException("CsvReader: " + sourceId
+                + ": no rows found");
+        }
+        String[] hdr = heap String[cols];
+        int64 c = 0;
+        while (c < cols) {
+            hdr[c] = "" + cells.get((int32) c);
+            c = c + 1;
+        }
+        int64 body = rowNo - 1;
+        String[] bd = heap String[body * cols];
+        int64 t = 0;
+        while (t < body * cols) {
+            bd[t] = "" + cells.get((int32) (cols + t));
+            t = t + 1;
+        }
+        int64 nid = b.table(hdr, bd, body, cols);
+        return b.build();
+    }
+
+    public static #Doc readJson(String sourceId, int8[] bytes) {
+        DocBuilder b = heap DocBuilder(sourceId);
+        JsonReader jr = stack JsonReader(bytes, (int64) bytes.count());
+        JsonValue v = jr.readValue();
+        if (v.kind() == JsonValue.ARRAY
+            && CsvJsonReader.isFlatObjectArray(v)) {
+            CsvJsonReader.arrayTable(b, v.asArray());
+        } else {
+            CsvJsonReader.walk(b, v, "");
+        }
+        return b.build();
+    }
+
+    static boolean isFlatObjectArray(JsonValue v) {
+        JsonArray a = v.asArray();
+        if (a.count() < 1) { return false; }
+        int32 i = 0;
+        while (i < a.count()) {
+            JsonValue e = a.get(i);
+            if (e.kind() != JsonValue.OBJECT) { return false; }
+            JsonObject o = e.asObject();
+            int32 k = 0;
+            while (k < o.count()) {
+                int32 kk = o.valueAt(k).kind();
+                if (kk == JsonValue.ARRAY || kk == JsonValue.OBJECT) {
+                    return false;
+                }
+                k = k + 1;
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    static void arrayTable(DocBuilder b, JsonArray a) {
+        // Columns = the FIRST object's keys, in order.
+        JsonObject first = a.get((int32) 0).asObject();
+        int64 cols = (int64) first.count();
+        String[] hdr = heap String[cols];
+        int32 k = 0;
+        while (k < (int32) cols) {
+            StringBuilder sb = heap StringBuilder();
+            sb.appendBytes(first.keyAt(k), (int32) 0, first.keyLenAt(k));
+            hdr[k] = sb.toString();
+            k = k + 1;
+        }
+        int64 rows = (int64) a.count();
+        String[] bd = heap String[rows * cols];
+        int32 r = 0;
+        while (r < (int32) rows) {
+            JsonObject o = a.get(r).asObject();
+            k = 0;
+            while (k < (int32) cols) {
+                JsonValue cell = o.get(hdr[k]);
+                if (cell == null) { bd[(int64) r * cols + (int64) k] = ""; }
+                else {
+                    bd[(int64) r * cols + (int64) k] =
+                        CsvJsonReader.scalar(cell);
+                }
+                k = k + 1;
+            }
+            r = r + 1;
+        }
+        int64 nid = b.table(hdr, bd, rows, cols);
+        return;
+    }
+
+    static void walk(DocBuilder b, JsonValue v, String path) {
+        if (v.kind() == JsonValue.OBJECT) {
+            JsonObject o = v.asObject();
+            int32 k = 0;
+            while (k < o.count()) {
+                StringBuilder sb = heap StringBuilder();
+                sb.appendBytes(o.keyAt(k), (int32) 0, o.keyLenAt(k));
+                String key = sb.toString();
+                String sub = key;
+                if (path.count() > 0) { sub = path + "." + key; }
+                CsvJsonReader.walk(b, o.valueAt(k), sub);
+                k = k + 1;
+            }
+        } else if (v.kind() == JsonValue.ARRAY) {
+            JsonArray a = v.asArray();
+            int32 i = 0;
+            while (i < a.count()) {
+                CsvJsonReader.walk(b, a.get(i), path + "[" + (int64) i
+                                   + "]");
+                i = i + 1;
+            }
+        } else {
+            int64 nid = b.paragraph(path + ": "
+                + CsvJsonReader.scalar(v));
+        }
+        return;
+    }
+
+    static #String scalar(JsonValue v) {
+        if (v.kind() == JsonValue.STRING) { return v.asString(); }
+        if (v.kind() == JsonValue.NULL) {
+            String s = "null";
+            return #s;
+        }
+        if (v.kind() == JsonValue.BOOLEAN) {
+            if (v.asBoolean()) {
+                String s = "true";
+                return #s;
+            }
+            String s = "false";
+            return #s;
+        }
+        if (v.isFloat()) {
+            String s = "" + v.asFloat64();
+            return #s;
+        }
+        String s = "" + v.asInt64();
+        return #s;
+    }
+}

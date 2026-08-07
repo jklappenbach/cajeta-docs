@@ -1,0 +1,96 @@
+package dev.cajeta.docs;
+
+import cajeta.lang.String;
+import cajeta.lang.StringBuilder;
+
+/**
+ * The plain-text reader (spec §4): paragraphs split on blank lines,
+ * whitespace runs collapse to single spaces (§2.7's stated policy), and
+ * a hyphen at a line break joins its halves (`meas-\nure` → `measure`).
+ * Single-pass, bounded by the input length (§4.9). Plain text has no
+ * pages — the physical level stays ABSENT (§2.6).
+ */
+public final class TextReader {
+
+    public static #Doc read(String sourceId, int8[] bytes) {
+        DocBuilder b = heap DocBuilder(sourceId);
+        int64 n = (int64) bytes.count();
+        StringBuilder para = heap StringBuilder();
+        boolean lastSpace = true;
+        boolean pendingHyphen = false;
+        int64 i = 0;
+        while (i < n) {
+            // One line: [i, eol).
+            int64 eol = i;
+            while (eol < n && bytes[eol] != 10) { eol = eol + 1; }
+            boolean blank = true;
+            int64 j = i;
+            while (j < eol) {
+                int8 c = bytes[j];
+                if (c != 32 && c != 9 && c != 13) {
+                    blank = false;
+                    j = eol;
+                } else {
+                    j = j + 1;
+                }
+            }
+            if (blank) {
+                if (!para.isEmpty()) {
+                    int64 nid = b.paragraph(para.toString());
+                    para = heap StringBuilder();
+                    lastSpace = true;
+                    pendingHyphen = false;
+                }
+            } else {
+                // Join across the line break: hyphen joins tight,
+                // otherwise a single space.
+                if (!para.isEmpty() && !pendingHyphen && !lastSpace) {
+                    para.append(" ");
+                    lastSpace = true;
+                }
+                pendingHyphen = false;
+                // Collapse in-line whitespace; detect a trailing hyphen.
+                int64 runStart = -1;
+                j = i;
+                while (j < eol) {
+                    int8 c = bytes[j];
+                    if (c == 32 || c == 9 || c == 13) {
+                        if (runStart >= 0) {
+                            para.appendBytes(bytes, (int32) runStart,
+                                             (int32) (j - runStart));
+                            runStart = -1;
+                            lastSpace = false;
+                        }
+                        if (!lastSpace) {
+                            para.append(" ");
+                            lastSpace = true;
+                        }
+                    } else {
+                        if (runStart < 0) { runStart = j; }
+                        lastSpace = false;
+                    }
+                    j = j + 1;
+                }
+                if (runStart >= 0) {
+                    int64 hi = eol;
+                    // A hyphen ending the line joins with the next line.
+                    if (bytes[hi - 1] == 45 && hi - 1 > runStart) {
+                        hi = hi - 1;
+                        pendingHyphen = true;
+                    } else if (bytes[hi - 1] == 45 && hi - 1 == runStart) {
+                        // A lone hyphen stays literal.
+                        pendingHyphen = false;
+                    }
+                    para.appendBytes(bytes, (int32) runStart,
+                                     (int32) (hi - runStart));
+                    lastSpace = false;
+                }
+            }
+            i = eol + 1;
+        }
+        if (!para.isEmpty()) {
+            int64 nid = b.paragraph(para.toString());
+        }
+        return b.build();
+    }
+}

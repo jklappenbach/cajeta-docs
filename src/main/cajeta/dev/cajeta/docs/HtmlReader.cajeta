@@ -1,0 +1,489 @@
+package dev.cajeta.docs;
+
+import cajeta.collection.ArrayList;
+import cajeta.lang.Int64;
+import cajeta.lang.String;
+import cajeta.lang.StringBuilder;
+
+/**
+ * The HTML reader (spec §4.3): a TOLERANT tag-soup scanner — real pages
+ * are not XML and no XML parser is involved. One bounded pass:
+ *
+ * - **Boilerplate is separated from content**: everything inside
+ *   `<script>`, `<style>`, `<nav>`, `<header>`, `<footer>`, and
+ *   `<aside>` is dropped — extracting a page's chrome as content is the
+ *   commonest ingestion defect.
+ * - `<h1>`–`<h6>` become SECTION structure (the hierarchy survives);
+ *   `<p>` paragraphs; `<ul>/<ol>` + `<li>` lists; `<pre>` atomic code
+ *   blocks; `<table>` STRUCTURED tables (`<th>` headers, `<td>` cells).
+ * - `<a href>` anchors record UNRESOLVED references with their anchor
+ *   text ranges (§4.11); `<base href>` sets the base URI; `<img>`
+ *   becomes an image element carrying its alt text.
+ * - Entities `&amp; &lt; &gt; &quot; &#39; &nbsp;` and numeric
+ *   `&#NN;` decode; unknown entities pass through literally.
+ *
+ * Malformed input degrades to text — an unclosed tag at EOF is a
+ * diagnostic naming the document and offset, never a hang (§4.9).
+ */
+public final class HtmlReader {
+
+    public static #Doc read(String sourceId, int8[] bytes) {
+        DocBuilder b = heap DocBuilder(sourceId);
+        ArrayList<Int64> secLevels = heap ArrayList<Int64>();
+        int64 n = (int64) bytes.count();
+        StringBuilder para = heap StringBuilder();
+        boolean lastSpace = true;
+        int64 skipDepth = 0;        // script/style/nav/header/footer/aside
+        boolean inList = false;
+        boolean inPre = false;
+        StringBuilder pre = heap StringBuilder();
+        boolean inTitle = false;
+        StringBuilder titleBuf = heap StringBuilder();
+        // Table collection state.
+        boolean inTable = false;
+        ArrayList<String> tCells = heap ArrayList<String>();
+        ArrayList<Int64> tRowLens = heap ArrayList<Int64>();
+        int64 tCurRow = 0;
+        boolean tHeaderRow = false;
+        StringBuilder cell = heap StringBuilder();
+        boolean inCell = false;
+        // Anchor state (owned strings live in the list, never in a
+        // null-initialized local — an owned-null drop crashes).
+        ArrayList<String> anchorHrefs = heap ArrayList<String>();
+        ArrayList<Int64> anchorStarts = heap ArrayList<Int64>();
+
+        int64 i = 0;
+        while (i < n) {
+            int8 c = bytes[i];
+            if (c == 60) {                              // '<'
+                // Comment?
+                if (i + 3 < n && bytes[i + 1] == 33 && bytes[i + 2] == 45
+                    && bytes[i + 3] == 45) {
+                    int64 j = i + 4;
+                    while (j + 2 < n && !(bytes[j] == 45
+                           && bytes[j + 1] == 45 && bytes[j + 2] == 62)) {
+                        j = j + 1;
+                    }
+                    if (j + 2 >= n) { i = n; }
+                    else { i = j + 3; }
+                } else {
+                    int64 tagEnd = i + 1;
+                    while (tagEnd < n && bytes[tagEnd] != 62) {
+                        tagEnd = tagEnd + 1;
+                    }
+                    if (tagEnd >= n) {
+                        throw heap DocsException("HtmlReader: " + sourceId
+                            + ": unclosed tag at offset " + i);
+                    }
+                    boolean closing = bytes[i + 1] == 47;
+                    int64 nameLo = i + 1;
+                    if (closing) { nameLo = i + 2; }
+                    int64 nameHi = nameLo;
+                    while (nameHi < tagEnd
+                           && HtmlReader.isNameChar(bytes[nameHi])) {
+                        nameHi = nameHi + 1;
+                    }
+                    String tag = HtmlReader.lowerSlice(bytes, nameLo,
+                                                       nameHi);
+                    if (!closing && (tag.equals("script")
+                        || tag.equals("style") || tag.equals("nav")
+                        || tag.equals("header") || tag.equals("footer")
+                        || tag.equals("aside"))) {
+                        skipDepth = skipDepth + 1;
+                    } else if (closing && (tag.equals("script")
+                        || tag.equals("style") || tag.equals("nav")
+                        || tag.equals("header") || tag.equals("footer")
+                        || tag.equals("aside"))) {
+                        if (skipDepth > 0) { skipDepth = skipDepth - 1; }
+                    } else if (skipDepth == 0) {
+                        if (!closing && tag.count() == 2
+                            && tag.charAt((int32) 0) == 104
+                            && tag.charAt((int32) 1) >= 49
+                            && tag.charAt((int32) 1) <= 54) {
+                            // h1..h6 → section: capture heading text.
+                            HtmlReader.flushPara(b, para);
+                            para = heap StringBuilder();
+                            if (inList) { b.endList(); inList = false; }
+                            int64 lvl = (int64) tag.charAt((int32) 1) - 48;
+                            StringBuilder ht = heap StringBuilder();
+                            i = HtmlReader.textUntilClose(bytes,
+                                tagEnd + 1, n, tag, ht);
+                            while (secLevels.count() > 0
+                                   && secLevels.get(secLevels.count() - 1)
+                                      .value() >= lvl) {
+                                b.endSection();
+                                Int64 pp = secLevels.removeAt(
+                                    secLevels.count() - 1);
+                            }
+                            int64 nid = b.beginSection(
+                                HtmlReader.collapse(ht.toString()));
+                            secLevels.add(Int64.of(lvl));
+                            tagEnd = i - 1;
+                        } else if (!closing && tag.equals("title")) {
+                            inTitle = true;
+                        } else if (closing && tag.equals("title")) {
+                            inTitle = false;
+                            b.setMetaTitle(HtmlReader.collapse(
+                                titleBuf.toString()));
+                        } else if (!closing && tag.equals("base")) {
+                            String href = HtmlReader.attr(bytes, nameHi,
+                                tagEnd, "href");
+                            if (href.count() > 0) { b.setBaseUri(href); }
+                        } else if (!closing && tag.equals("pre")) {
+                            HtmlReader.flushPara(b, para);
+                            para = heap StringBuilder();
+                            inPre = true;
+                            pre = heap StringBuilder();
+                        } else if (closing && tag.equals("pre")) {
+                            if (inPre) {
+                                int64 nid = b.codeBlock(pre.toString());
+                                inPre = false;
+                            }
+                        } else if (!closing && (tag.equals("ul")
+                                   || tag.equals("ol"))) {
+                            HtmlReader.flushPara(b, para);
+                            para = heap StringBuilder();
+                            if (!inList) {
+                                int64 nid = b.beginList();
+                                inList = true;
+                            }
+                        } else if (closing && (tag.equals("ul")
+                                   || tag.equals("ol"))) {
+                            if (inList) { b.endList(); inList = false; }
+                        } else if (!closing && tag.equals("li")) {
+                            StringBuilder it = heap StringBuilder();
+                            i = HtmlReader.textUntilClose(bytes,
+                                tagEnd + 1, n, tag, it);
+                            if (inList) {
+                                int64 nid = b.listItem(
+                                    HtmlReader.collapse(it.toString()));
+                            }
+                            tagEnd = i - 1;
+                        } else if (!closing && tag.equals("table")) {
+                            HtmlReader.flushPara(b, para);
+                            para = heap StringBuilder();
+                            inTable = true;
+                            tCells.clear();
+                            tRowLens.clear();
+                            tCurRow = 0;
+                            tHeaderRow = false;
+                        } else if (closing && tag.equals("table")) {
+                            if (inTable) {
+                                HtmlReader.emitTable(b, tCells, tRowLens);
+                                inTable = false;
+                            }
+                        } else if (inTable && !closing
+                                   && tag.equals("tr")) {
+                            tRowLens.add(Int64.of((int64) 0));
+                        } else if (inTable && !closing
+                                   && (tag.equals("td")
+                                       || tag.equals("th"))) {
+                            StringBuilder ct = heap StringBuilder();
+                            i = HtmlReader.textUntilClose(bytes,
+                                tagEnd + 1, n, tag, ct);
+                            String cv = HtmlReader.collapse(ct.toString());
+                            tCells.add(#cv);
+                            if (tRowLens.count() > 0) {
+                                int64 cur = tRowLens.get(
+                                    tRowLens.count() - 1).value();
+                                tRowLens.set(tRowLens.count() - 1,
+                                             Int64.of(cur + 1));
+                            }
+                            tagEnd = i - 1;
+                        } else if (!closing && tag.equals("a")) {
+                            String href = HtmlReader.attr(bytes, nameHi,
+                                tagEnd, "href");
+                            if (href.count() > 0) {
+                                anchorHrefs.add(#href);
+                                anchorStarts.add(Int64.of(
+                                    b.currentOffset()
+                                    + (int64) para.count()));
+                            }
+                        } else if (closing && tag.equals("a")) {
+                            if (anchorHrefs.count() > 0) {
+                                String h = anchorHrefs.removeAt(
+                                    anchorHrefs.count() - 1);
+                                Int64 st = anchorStarts.removeAt(
+                                    anchorStarts.count() - 1);
+                                b.reference(h, st.value(),
+                                    b.currentOffset()
+                                    + (int64) para.count());
+                            }
+                        } else if (!closing && tag.equals("img")) {
+                            String alt = HtmlReader.attr(bytes, nameHi,
+                                tagEnd, "alt");
+                            String src = HtmlReader.attr(bytes, nameHi,
+                                tagEnd, "src");
+                            int64 nid = b.image(null, alt, null);
+                            if (src.count() > 0) {
+                                b.reference(src, b.currentOffset(),
+                                            b.currentOffset());
+                            }
+                        } else if (closing && tag.equals("p")) {
+                            HtmlReader.flushPara(b, para);
+                            para = heap StringBuilder();
+                            lastSpace = true;
+                        } else if (!closing && (tag.equals("p")
+                                   || tag.equals("div")
+                                   || tag.equals("br"))) {
+                            HtmlReader.flushPara(b, para);
+                            para = heap StringBuilder();
+                            lastSpace = true;
+                        }
+                    }
+                    i = tagEnd + 1;
+                }
+            } else if (skipDepth > 0) {
+                i = i + 1;
+            } else if (inPre) {
+                int8[] one = heap int8[1];
+                one[0] = c;
+                pre.appendBytes(one, (int32) 0, (int32) 1);
+                i = i + 1;
+            } else if (inTitle) {
+                int8[] one = heap int8[1];
+                one[0] = c;
+                titleBuf.appendBytes(one, (int32) 0, (int32) 1);
+                i = i + 1;
+            } else {
+                // Text content → the open paragraph, entity-decoded,
+                // whitespace-collapsed.
+                if (c == 38) {                          // '&'
+                    int64 adv = HtmlReader.entity(bytes, i, n, para);
+                    i = i + adv;
+                    lastSpace = false;
+                } else if (c == 32 || c == 9 || c == 10 || c == 13) {
+                    if (!lastSpace && !para.isEmpty()) {
+                        para.append(" ");
+                    }
+                    lastSpace = true;
+                    i = i + 1;
+                } else {
+                    int8[] one = heap int8[1];
+                    one[0] = c;
+                    para.appendBytes(one, (int32) 0, (int32) 1);
+                    lastSpace = false;
+                    i = i + 1;
+                }
+            }
+        }
+        HtmlReader.flushPara(b, para);
+        if (inList) { b.endList(); }
+        while (secLevels.count() > 0) {
+            b.endSection();
+            Int64 popped = secLevels.removeAt(secLevels.count() - 1);
+        }
+        return b.build();
+    }
+
+    static void flushPara(DocBuilder b, StringBuilder para) {
+        String s = HtmlReader.collapse(para.toString());
+        if (s.count() > 0) {
+            int64 nid = b.paragraph(s);
+        }
+        return;
+    }
+
+    /** Collect entity-decoded text until `</tag>`; returns next offset. */
+    static int64 textUntilClose(int8[] bytes, int64 i, int64 n,
+                                String tag, StringBuilder out) {
+        while (i < n) {
+            int8 c = bytes[i];
+            if (c == 60) {
+                // A closing tag for `tag`?
+                if (i + 1 < n && bytes[i + 1] == 47) {
+                    int64 lo = i + 2;
+                    int64 hi = lo;
+                    while (hi < n && HtmlReader.isNameChar(bytes[hi])) {
+                        hi = hi + 1;
+                    }
+                    String name = HtmlReader.lowerSlice(bytes, lo, hi);
+                    // Skip to '>'.
+                    while (hi < n && bytes[hi] != 62) { hi = hi + 1; }
+                    if (name.equals(tag)) {
+                        return hi + 1;
+                    }
+                    i = hi + 1;
+                } else {
+                    // A nested opening tag: skip it (inline markup).
+                    int64 hi = i + 1;
+                    while (hi < n && bytes[hi] != 62) { hi = hi + 1; }
+                    if (hi >= n) { return n; }
+                    i = hi + 1;
+                }
+            } else if (c == 38) {
+                i = i + HtmlReader.entity(bytes, i, n, out);
+            } else {
+                int8[] one = heap int8[1];
+                one[0] = c;
+                out.appendBytes(one, (int32) 0, (int32) 1);
+                i = i + 1;
+            }
+        }
+        return n;
+    }
+
+    /** Decode one entity at `i`; append to `out`; return bytes consumed. */
+    static int64 entity(int8[] bytes, int64 i, int64 n,
+                        StringBuilder out) {
+        int64 semi = i + 1;
+        int64 cap = i + 8;
+        while (semi < n && semi < cap && bytes[semi] != 59) {
+            semi = semi + 1;
+        }
+        if (semi >= n || bytes[semi] != 59) {
+            out.append("&");
+            return 1;
+        }
+        String name = HtmlReader.lowerSlice(bytes, i + 1, semi);
+        if (name.equals("amp")) { out.append("&"); }
+        else if (name.equals("lt")) { out.append("<"); }
+        else if (name.equals("gt")) { out.append(">"); }
+        else if (name.equals("quot")) { out.append("\""); }
+        else if (name.equals("nbsp")) { out.append(" "); }
+        else if (name.count() > 1 && name.charAt((int32) 0) == 35) {
+            int64 v = 0;
+            int64 k = 1;
+            while (k < name.count()) {
+                int8 d = name.charAt((int32) k);
+                if (d >= 48 && d <= 57) { v = v * 10 + (int64) d - 48; }
+                k = k + 1;
+            }
+            if (v > 0 && v < 128) {
+                int8[] one = heap int8[1];
+                one[0] = (int8) v;
+                out.appendBytes(one, (int32) 0, (int32) 1);
+            }
+        } else {
+            out.append("&");
+            return 1;
+        }
+        return semi - i + 1;
+    }
+
+    /** The value of attribute `want` inside a tag, or "" (never null —
+     *  an owned-null String local is a drop hazard). */
+    static #String attr(int8[] bytes, int64 lo, int64 hi, String want) {
+        int64 i = lo;
+        while (i < hi) {
+            while (i < hi && !HtmlReader.isNameChar(bytes[i])) {
+                i = i + 1;
+            }
+            int64 nameLo = i;
+            while (i < hi && HtmlReader.isNameChar(bytes[i])) {
+                i = i + 1;
+            }
+            String name = HtmlReader.lowerSlice(bytes, nameLo, i);
+            while (i < hi && (bytes[i] == 32 || bytes[i] == 9)) {
+                i = i + 1;
+            }
+            if (i < hi && bytes[i] == 61) {             // '='
+                i = i + 1;
+                while (i < hi && (bytes[i] == 32 || bytes[i] == 9)) {
+                    i = i + 1;
+                }
+                int64 vLo;
+                int64 vHi;
+                if (i < hi && (bytes[i] == 34 || bytes[i] == 39)) {
+                    int8 q = bytes[i];
+                    vLo = i + 1;
+                    vHi = vLo;
+                    while (vHi < hi && bytes[vHi] != q) {
+                        vHi = vHi + 1;
+                    }
+                    i = vHi + 1;
+                } else {
+                    vLo = i;
+                    vHi = vLo;
+                    while (vHi < hi && bytes[vHi] != 32) {
+                        vHi = vHi + 1;
+                    }
+                    i = vHi;
+                }
+                if (name.equals(want)) {
+                    StringBuilder sb = heap StringBuilder();
+                    sb.appendBytes(bytes, (int32) vLo,
+                                   (int32) (vHi - vLo));
+                    return sb.toString();
+                }
+            }
+        }
+        String none = "";
+        return #none;
+    }
+
+    static void emitTable(DocBuilder b, ArrayList<String> cells,
+                          ArrayList<Int64> rowLens) {
+        int64 nRows = (int64) rowLens.count();
+        if (nRows < 1 || cells.count() == 0) { return; }
+        int64 cols = rowLens.get((int32) 0).value();
+        if (cols < 1) { return; }
+        int64 body = nRows - 1;
+        String[] hdr = heap String[cols];
+        int64 c = 0;
+        while (c < cols) {
+            if (c < (int64) cells.count()) {
+                hdr[c] = "" + cells.get((int32) c);
+            } else { hdr[c] = ""; }
+            c = c + 1;
+        }
+        String[] bd = heap String[body * cols];
+        int64 pos = cols;
+        int64 r = 0;
+        while (r < body) {
+            c = 0;
+            while (c < cols) {
+                if (pos < (int64) cells.count()) {
+                    bd[r * cols + c] = "" + cells.get((int32) pos);
+                } else { bd[r * cols + c] = ""; }
+                pos = pos + 1;
+                c = c + 1;
+            }
+            r = r + 1;
+        }
+        int64 nid = b.table(hdr, bd, body, cols);
+        return;
+    }
+
+    /** Collapse whitespace runs to single spaces and trim. */
+    static #String collapse(String s) {
+        StringBuilder out = heap StringBuilder();
+        boolean lastSpace = true;
+        int64 n = s.count();
+        int64 i = 0;
+        while (i < n) {
+            int8 c = s.charAt((int32) i);
+            if (c == 32 || c == 9 || c == 10 || c == 13) {
+                if (!lastSpace) {
+                    out.append(" ");
+                    lastSpace = true;
+                }
+            } else {
+                int8[] one = heap int8[1];
+                one[0] = c;
+                out.appendBytes(one, (int32) 0, (int32) 1);
+                lastSpace = false;
+            }
+            i = i + 1;
+        }
+        String r = out.toString();
+        int64 hi = r.count();
+        while (hi > 0 && r.charAt((int32) (hi - 1)) == 32) {
+            hi = hi - 1;
+        }
+        return r.substring((int32) 0, (int32) hi);
+    }
+
+    static boolean isNameChar(int8 c) {
+        if (c >= 97 && c <= 122) { return true; }
+        if (c >= 65 && c <= 90) { return true; }
+        if (c >= 48 && c <= 57) { return true; }
+        return false;
+    }
+
+    static #String lowerSlice(int8[] bytes, int64 lo, int64 hi) {
+        StringBuilder sb = heap StringBuilder();
+        sb.appendBytes(bytes, (int32) lo, (int32) (hi - lo));
+        return sb.toString().toLowerCase();
+    }
+}

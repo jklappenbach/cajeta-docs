@@ -1,0 +1,127 @@
+package dev.cajeta.docs.selftest;
+
+import dev.cajeta.unit.Assert;
+import cajeta.error.RecoverableException;
+import cajeta.math.Tensor;
+import cajeta.math.random.Generator;
+import dev.cajeta.docs.Doc;
+import dev.cajeta.docs.Reader;
+
+/**
+ * cajeta-docs U2 — the fuzz harness (2.1.7, §13.9, §13.11): document
+ * input is untrusted by definition, so every reader takes (a) seeded
+ * random byte soup and (b) seeded MUTATIONS of valid seed documents —
+ * bit flips, truncations, duplications — and must return a Doc or
+ * throw a diagnostic. No hang (every parser is a bounded single pass),
+ * no crash, no silent nonsense. Runs deterministically (§12-style
+ * seeding), so a failure reproduces.
+ */
+public class FuzzTest {
+
+    public FuzzTest() { return; }
+
+    static #int8[] seedDoc(int64 which) {
+        String s;
+        if (which == 0) {
+            s = "# T\n\npara [x](y)\n\n- a\n- b\n\n```\ncode\n```\n"
+                + "\n| h | k |\n| - | - |\n| 1 | 2 |\n";
+        } else if (which == 1) {
+            s = "<html><head><title>t</title><style>x</style></head>"
+                + "<body><nav>chrome</nav><h1>H</h1><p>text &amp; "
+                + "more</p><ul><li>i</li></ul><table><tr><th>h</th>"
+                + "</tr><tr><td>1</td></tr></table></body></html>";
+        } else if (which == 2) {
+            s = "a,b,c\n1,2,3\n4,5,6\n";
+        } else if (which == 3) {
+            s = "{\"k\": [1, 2, {\"n\": \"v\"}], \"m\": true}";
+        } else {
+            s = "Plain text.\n\nWith two para-\ngraphs and  spacing.\n";
+        }
+        return s.toBytes();
+    }
+
+    static void tryRead(String name, int8[] bytes) {
+        // A Doc or a RecoverableException — anything else fails the
+        // test by crashing the binary.
+        boolean ok = false;
+        try {
+            Doc d = Reader.read(name, bytes);
+            ok = d.parseCount() == (int64) 1;
+        } catch (RecoverableException ex) {
+            ok = true;
+        }
+        Assert.isTrue(ok);
+        return;
+    }
+
+    // Random byte soup: 200 seeded buffers up to 2 KB.
+    @Test
+    public void randomBytesNeverCrash() {
+        Generator g = heap Generator((uint64) 424242);
+        int64 iter = 0;
+        while (iter < 200) {
+            Tensor<int64> len = g.integers((int64) 0, (int64) 2048,
+                                           (int64) 1);
+            int64 n = len.flatGet((int64) 0);
+            int8[] buf = heap int8[n];
+            if (n > 0) {
+                Tensor<int64> vals = g.integers((int64) 0, (int64) 256, n);
+                int64 t = 0;
+                while (t < n) {
+                    buf[t] = (int8) vals.flatGet(t);
+                    t = t + 1;
+                }
+            }
+            FuzzTest.tryRead("fuzz/rand-" + iter, buf);
+            iter = iter + 1;
+        }
+        return;
+    }
+
+    // Mutations of valid seeds: flips, truncations, duplications.
+    @Test
+    public void mutatedDocumentsNeverCrash() {
+        Generator g = heap Generator((uint64) 777);
+        int64 iter = 0;
+        while (iter < 150) {
+            int8[] seed = FuzzTest.seedDoc(iter % 5);
+            int64 n = (int64) seed.count();
+            Tensor<int64> mode = g.integers((int64) 0, (int64) 3,
+                                            (int64) 1);
+            int64 m = mode.flatGet((int64) 0);
+            int8[] buf;
+            if (m == 0 && n > 0) {
+                // Bit flips at 4 seeded positions.
+                buf = heap int8[n];
+                int64 t = 0;
+                while (t < n) { buf[t] = seed[t]; t = t + 1; }
+                Tensor<int64> pos = g.integers((int64) 0, n, (int64) 4);
+                t = 0;
+                while (t < 4) {
+                    int64 p = pos.flatGet(t);
+                    buf[p] = (int8) ((int64) buf[p] ^ (int64) 64);
+                    t = t + 1;
+                }
+            } else if (m == 1 && n > 1) {
+                // Truncation.
+                Tensor<int64> cut = g.integers((int64) 1, n, (int64) 1);
+                int64 c = cut.flatGet((int64) 0);
+                buf = heap int8[c];
+                int64 t = 0;
+                while (t < c) { buf[t] = seed[t]; t = t + 1; }
+            } else {
+                // Duplication (self-concatenation).
+                buf = heap int8[n * 2];
+                int64 t = 0;
+                while (t < n) {
+                    buf[t] = seed[t];
+                    buf[n + t] = seed[t];
+                    t = t + 1;
+                }
+            }
+            FuzzTest.tryRead("fuzz/mut-" + iter, buf);
+            iter = iter + 1;
+        }
+        return;
+    }
+}

@@ -1,0 +1,295 @@
+package dev.cajeta.docs;
+
+import cajeta.collection.ArrayList;
+import cajeta.lang.Int64;
+import cajeta.lang.String;
+import cajeta.lang.StringBuilder;
+
+/**
+ * The Markdown reader (spec §4.2): headings become SECTION structure
+ * (closing open sections of equal-or-deeper level), `-`/`*` items
+ * become lists, ``` fences become atomic code blocks, `| a | b |`
+ * pipe-tables (with a `---` separator row) become STRUCTURED tables,
+ * `[text](url)` links are recorded as UNRESOLVED references with their
+ * anchor ranges (§4.11), and `![alt](url)` images become elements. One
+ * line-bounded pass (§4.9); an unterminated fence is a named
+ * diagnostic, not a hang.
+ */
+public final class MarkdownReader {
+
+    public static #Doc read(String sourceId, int8[] bytes) {
+        DocBuilder b = heap DocBuilder(sourceId);
+        ArrayList<Int64> secLevels = heap ArrayList<Int64>();
+        int64 n = (int64) bytes.count();
+        StringBuilder para = heap StringBuilder();
+        boolean inList = false;
+        int64 i = 0;
+        while (i < n) {
+            int64 eol = i;
+            while (eol < n && bytes[eol] != 10) { eol = eol + 1; }
+            int64 lo = i;
+            while (lo < eol && (bytes[lo] == 32 || bytes[lo] == 9)) {
+                lo = lo + 1;
+            }
+            boolean blank = lo >= eol
+                || (lo + 1 >= eol && bytes[lo] == 13);
+
+            if (!blank && bytes[lo] == 35) {           // '#' heading
+                MarkdownReader.flushPara(b, para);
+                para = heap StringBuilder();
+                if (inList) { b.endList(); inList = false; }
+                int64 lvl = 0;
+                while (lo < eol && bytes[lo] == 35) {
+                    lvl = lvl + 1;
+                    lo = lo + 1;
+                }
+                while (lo < eol && bytes[lo] == 32) { lo = lo + 1; }
+                String title = MarkdownReader.slice(bytes, lo, eol);
+                // Close sections at >= this level, then open.
+                while (secLevels.count() > 0
+                       && secLevels.get(secLevels.count() - 1).value()
+                          >= lvl) {
+                    b.endSection();
+                    Int64 popped = secLevels.removeAt(
+                        secLevels.count() - 1);
+                }
+                int64 nid = b.beginSection(title);
+                secLevels.add(Int64.of(lvl));
+            } else if (!blank && bytes[lo] == 96 && lo + 2 < eol
+                       && bytes[lo + 1] == 96 && bytes[lo + 2] == 96) {
+                // ``` fence: collect to the closing fence.
+                MarkdownReader.flushPara(b, para);
+                para = heap StringBuilder();
+                if (inList) { b.endList(); inList = false; }
+                StringBuilder code = heap StringBuilder();
+                int64 j = eol + 1;
+                boolean closed = false;
+                while (j < n && !closed) {
+                    int64 e2 = j;
+                    while (e2 < n && bytes[e2] != 10) { e2 = e2 + 1; }
+                    int64 l2 = j;
+                    while (l2 < e2 && (bytes[l2] == 32 || bytes[l2] == 9)) {
+                        l2 = l2 + 1;
+                    }
+                    if (l2 + 2 < e2 && bytes[l2] == 96
+                        && bytes[l2 + 1] == 96 && bytes[l2 + 2] == 96) {
+                        closed = true;
+                    } else {
+                        if (!code.isEmpty()) { code.append("\n"); }
+                        code.appendBytes(bytes, (int32) j,
+                                         (int32) (e2 - j));
+                    }
+                    j = e2 + 1;
+                }
+                if (!closed) {
+                    throw heap DocsException("MarkdownReader: " + sourceId
+                        + ": unterminated code fence opened at offset "
+                        + i);
+                }
+                int64 nid = b.codeBlock(code.toString());
+                eol = j - 1;
+            } else if (!blank && (bytes[lo] == 45 || bytes[lo] == 42)
+                       && lo + 1 < eol && bytes[lo + 1] == 32) {
+                // List item.
+                MarkdownReader.flushPara(b, para);
+                para = heap StringBuilder();
+                if (!inList) {
+                    int64 lnid = b.beginList();
+                    inList = true;
+                }
+                String item = MarkdownReader.inline(b, bytes, lo + 2, eol);
+                int64 nid = b.listItem(item);
+            } else if (!blank && bytes[lo] == 124) {   // '|' table
+                MarkdownReader.flushPara(b, para);
+                para = heap StringBuilder();
+                if (inList) { b.endList(); inList = false; }
+                i = MarkdownReader.tableAt(b, bytes, i, n, sourceId);
+                eol = i - 1;
+            } else if (blank) {
+                MarkdownReader.flushPara(b, para);
+                para = heap StringBuilder();
+                if (inList) { b.endList(); inList = false; }
+            } else {
+                // Paragraph continuation.
+                if (!para.isEmpty()) { para.append(" "); }
+                String frag = MarkdownReader.inline(b, bytes, lo, eol);
+                para.append(frag);
+            }
+            i = eol + 1;
+        }
+        MarkdownReader.flushPara(b, para);
+        if (inList) { b.endList(); }
+        while (secLevels.count() > 0) {
+            b.endSection();
+            Int64 popped = secLevels.removeAt(secLevels.count() - 1);
+        }
+        return b.build();
+    }
+
+    static void flushPara(DocBuilder b, StringBuilder para) {
+        if (!para.isEmpty()) {
+            int64 nid = b.paragraph(para.toString());
+        }
+        return;
+    }
+
+    static #String slice(int8[] bytes, int64 lo, int64 hi) {
+        while (hi > lo && (bytes[hi - 1] == 13 || bytes[hi - 1] == 32)) {
+            hi = hi - 1;
+        }
+        StringBuilder sb = heap StringBuilder();
+        sb.appendBytes(bytes, (int32) lo, (int32) (hi - lo));
+        return sb.toString();
+    }
+
+    /**
+     * Inline content: strips `[text](url)` to `text` (recording the
+     * reference — offsets are approximate to the emitted text position)
+     * and `![alt](url)` to an image element. Returns the flattened text.
+     */
+    static #String inline(DocBuilder b, int8[] bytes, int64 lo, int64 hi) {
+        StringBuilder out = heap StringBuilder();
+        int64 base = b.currentOffset();
+        int64 i = lo;
+        while (i < hi) {
+            int8 c = bytes[i];
+            boolean isImage = c == 33 && i + 1 < hi && bytes[i + 1] == 91;
+            if ((c == 91 || isImage)) {
+                int64 tOpen = i;
+                if (isImage) { tOpen = i + 1; }
+                // Find "](" then ")".
+                int64 mid = tOpen + 1;
+                while (mid < hi && !(bytes[mid] == 93 && mid + 1 < hi
+                        && bytes[mid + 1] == 40)) {
+                    mid = mid + 1;
+                }
+                int64 close = mid + 2;
+                while (close < hi && bytes[close] != 41) {
+                    close = close + 1;
+                }
+                if (mid < hi && close < hi) {
+                    String text = MarkdownReader.slice(bytes, tOpen + 1,
+                                                       mid);
+                    String url = MarkdownReader.slice(bytes, mid + 2,
+                                                      close);
+                    if (isImage) {
+                        int64 nid = b.image(null, text, null);
+                        // The image URL is a reference too.
+                        b.reference(url, base + (int64) out.count(),
+                                    base + (int64) out.count());
+                    } else {
+                        int64 s = base + (int64) out.count();
+                        out.append(text);
+                        b.reference(url, s, base + (int64) out.count());
+                    }
+                    i = close + 1;
+                } else {
+                    int8[] one = heap int8[1];
+                    one[0] = c;
+                    out.appendBytes(one, (int32) 0, (int32) 1);
+                    i = i + 1;
+                }
+            } else if (c == 13) {
+                i = i + 1;
+            } else {
+                int8[] one = heap int8[1];
+                one[0] = c;
+                out.appendBytes(one, (int32) 0, (int32) 1);
+                i = i + 1;
+            }
+        }
+        return out.toString();
+    }
+
+    /** Parse a pipe table starting at line offset `i`; returns next i. */
+    static int64 tableAt(DocBuilder b, int8[] bytes, int64 i, int64 n,
+                         String sourceId) {
+        ArrayList<String> rows = heap ArrayList<String>();
+        int64 cols = -1;
+        while (i < n) {
+            int64 eol = i;
+            while (eol < n && bytes[eol] != 10) { eol = eol + 1; }
+            int64 lo = i;
+            while (lo < eol && (bytes[lo] == 32 || bytes[lo] == 9)) {
+                lo = lo + 1;
+            }
+            if (lo >= eol || bytes[lo] != 124) { break; }
+            String line = MarkdownReader.slice(bytes, lo, eol);
+            rows.add(#line);
+            i = eol + 1;
+        }
+        // Split each row on '|'; row 2 (index 1) must be the separator.
+        if (rows.count() < 2) {
+            // Not a table after all: treat the line as a paragraph.
+            int64 nid = b.paragraph(rows.get((int32) 0));
+            return i;
+        }
+        ArrayList<String> header = MarkdownReader.cells(
+            rows.get((int32) 0));
+        int64 nc = (int64) header.count();
+        int64 nBody = (int64) rows.count() - 2;
+        String[] hdr = heap String[nc];
+        int32 c = 0;
+        while (c < (int32) nc) {
+            hdr[c] = "" + header.get(c);
+            c = c + 1;
+        }
+        String[] body = heap String[nBody * nc];
+        int64 r = 0;
+        while (r < nBody) {
+            ArrayList<String> cs = MarkdownReader.cells(
+                rows.get((int32) (r + 2)));
+            c = 0;
+            while (c < (int32) nc) {
+                if (c < cs.count()) { body[r * nc + (int64) c] = "" + cs.get(c); }
+                else { body[r * nc + (int64) c] = ""; }
+                c = c + 1;
+            }
+            r = r + 1;
+        }
+        int64 nid = b.table(hdr, body, nBody, nc);
+        return i;
+    }
+
+    static #ArrayList<String> cells(String row) {
+        ArrayList<String> out = heap ArrayList<String>();
+        int64 n = row.count();
+        int64 i = 0;
+        if (i < n && row.charAt((int32) 0) == 124) { i = 1; }
+        StringBuilder cur = heap StringBuilder();
+        while (i < n) {
+            int8 c = row.charAt((int32) i);
+            if (c == 124) {
+                String cell = MarkdownReader.trimStr(cur.toString());
+                out.add(#cell);
+                cur = heap StringBuilder();
+            } else {
+                int8[] one = heap int8[1];
+                one[0] = c;
+                cur.appendBytes(one, (int32) 0, (int32) 1);
+            }
+            i = i + 1;
+        }
+        if (!cur.isEmpty()) {
+            String tail = MarkdownReader.trimStr(cur.toString());
+            if (tail.count() > 0) { out.add(#tail); }
+        }
+        return #out;
+    }
+
+    static #String trimStr(String s) {
+        int64 n = s.count();
+        int64 lo = 0;
+        while (lo < n && (s.charAt((int32) lo) == 32
+               || s.charAt((int32) lo) == 9)) {
+            lo = lo + 1;
+        }
+        int64 hi = n;
+        while (hi > lo && (s.charAt((int32) (hi - 1)) == 32
+               || s.charAt((int32) (hi - 1)) == 9
+               || s.charAt((int32) (hi - 1)) == 13)) {
+            hi = hi - 1;
+        }
+        return s.substring((int32) lo, (int32) hi);
+    }
+}
