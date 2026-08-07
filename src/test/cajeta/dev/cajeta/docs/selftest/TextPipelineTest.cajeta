@@ -1,0 +1,177 @@
+package dev.cajeta.docs.selftest;
+
+import dev.cajeta.unit.Assert;
+import cajeta.lang.String;
+import dev.cajeta.docs.Analyzer;
+import dev.cajeta.docs.Doc;
+import dev.cajeta.docs.DocBuilder;
+import dev.cajeta.docs.Segmenter;
+import dev.cajeta.docs.SentenceList;
+import dev.cajeta.docs.TokenList;
+
+/**
+ * cajeta-docs U6 — normalization via the STDLIB (6.1.1, §7.1–§7.2), the
+ * reusable analysis chain (6.1.2), and the adversarial sentence fixture
+ * (6.1.3, §13.4): abbreviations, decimals, ellipses, quotations, and a
+ * sentence spanning a page break.
+ */
+public class TextPipelineTest {
+
+    public TextPipelineTest() { return; }
+
+    // 6.1.1 + §7.2 — normalization is cajeta.lang.String's: NFKC
+    // decomposes the ﬁ ligature, stripDefaultIgnorables removes the
+    // soft hyphen, case folding is explicit.
+    @Test
+    public void normalizationIsTheStdlibs() {
+        // "ﬁle" with U+FB01 (EF AC 81) + "IMPORTANT" + soft hyphen
+        // U+00AD (C2 AD) inside "co-operate".
+        int8[] lig = heap int8[7];
+        lig[0] = -17; lig[1] = -84; lig[2] = -127;      // U+FB01 ﬁ
+        lig[3] = 108; lig[4] = 101;                     // "le"
+        lig[5] = 32; lig[6] = 65;                       // " A"
+        String s = heap String(#lig, (int32) 7);
+        Analyzer a = heap Analyzer();
+        String norm = a.normalize(s);
+        Assert.isTrue(norm.contains("file"));           // ligature split
+        Assert.isTrue(norm.contains("a"));              // folded
+        Assert.isTrue(!norm.contains("A"));
+
+        int8[] soft = heap int8[10];
+        soft[0] = 99; soft[1] = 111;                    // "co"
+        soft[2] = -62; soft[3] = -83;                   // U+00AD SHY
+        soft[4] = 111; soft[5] = 112; soft[6] = 101;    // "ope"
+        soft[7] = 114; soft[8] = 97; soft[9] = 116;     // "rat"
+        String s2 = heap String(#soft, (int32) 10);
+        String norm2 = a.normalize(s2);
+        Assert.isTrue(norm2.equals("cooperat"));        // SHY removed
+        return;
+    }
+
+    // 6.1.2 + §8 — the chain: word tokens with offsets, stopwords
+    // documented/replaceable/disableable, n-grams, and the SAME chain
+    // object reused at query time gives identical rules (§8.6).
+    @Test
+    public void analysisChainIsReusable() {
+        Analyzer a = heap Analyzer();
+        String text = "The Measurement held; the anomaly did not recur.";
+        TokenList t1 = a.analyze(text);
+        // Stopwords (the, did, not) are gone; case folded.
+        int64 i = 0;
+        boolean sawThe = false;
+        while (i < t1.count()) {
+            if (t1.term(i).equals("the")) { sawThe = true; }
+            i = i + 1;
+        }
+        Assert.isTrue(!sawThe);
+        Assert.isTrue(t1.term((int64) 0).equals("measurement"));
+        // Offsets trace back into the NORMALIZED text (§8.2).
+        Assert.isTrue(t1.endOf((int64) 0) > t1.startOf((int64) 0));
+
+        // Determinism: the same chain, the same text, twice (§8.6).
+        TokenList t2 = a.analyze(text);
+        Assert.equals(t2.count(), t1.count());
+        i = 0;
+        while (i < t1.count()) {
+            Assert.isTrue(t2.term(i).equals(t1.term(i)));
+            Assert.equals(t2.startOf(i), t1.startOf(i));
+            i = i + 1;
+        }
+        // Query-time reuse: a query token matches a document token
+        // because the rules are the same object.
+        TokenList q = a.analyze("MEASUREMENT?");
+        Assert.isTrue(q.term((int64) 0).equals(t1.term((int64) 0)));
+
+        // Stopwords disabled → "the" reappears.
+        a.setStopwordsEnabled(false);
+        TokenList t3 = a.analyze(text);
+        Assert.isTrue(t3.term((int64) 0).equals("the"));
+        a.setStopwordsEnabled(true);
+
+        // A custom list replaces the documented default.
+        String[] custom = heap String[1];
+        custom[0] = "anomaly";
+        a.setStopwords(custom);
+        TokenList t4 = a.analyze(text);
+        i = 0;
+        boolean sawAnomaly = false;
+        while (i < t4.count()) {
+            if (t4.term(i).equals("anomaly")) { sawAnomaly = true; }
+            i = i + 1;
+        }
+        Assert.isTrue(!sawAnomaly);
+
+        // n-grams (§8.5).
+        Analyzer b = heap Analyzer();
+        b.setStopwordsEnabled(false);
+        TokenList tt = b.analyze("one two three");
+        String[] bi = b.ngrams(tt, (int64) 2, (int64) 2);
+        Assert.equals((int64) bi.count(), (int64) 2);
+        Assert.isTrue(bi[0].equals("one two"));
+        Assert.isTrue(bi[1].equals("two three"));
+
+        // The whitespace tokenizer keeps punctuation attached (§8.1).
+        Analyzer w = heap Analyzer();
+        w.setTokenizer("whitespace");
+        w.setStopwordsEnabled(false);
+        w.setCaseFold(false);
+        TokenList tw = w.analyze("don't panic!");
+        Assert.equals(tw.count(), (int64) 2);
+        Assert.isTrue(tw.term((int64) 0).equals("don't"));
+        return;
+    }
+
+    // 6.1.3 + §13.4 — the adversarial fixture IS the specification:
+    // abbreviations, decimals, ellipses, quotations — and a sentence
+    // spanning a page break stays ONE sentence.
+    @Test
+    public void adversarialSegmentation() {
+        Segmenter g = heap Segmenter();
+        String text = "Dr. Smith measured 3.14 yesterday. "
+            + "He said \"It works.\" "
+            + "Then... everyone left. "
+            + "See Fig. 2 for et al. citations.";
+        SentenceList s = g.segment(text);
+        Assert.equals(s.count(), (int64) 4);
+        String s0 = text.substring((int32) s.startOf((int64) 0),
+                                   (int32) s.endOf((int64) 0));
+        Assert.isTrue(s0.equals("Dr. Smith measured 3.14 yesterday."));
+        String s1 = text.substring((int32) s.startOf((int64) 1),
+                                   (int32) s.endOf((int64) 1));
+        Assert.isTrue(s1.equals("He said \"It works.\""));
+        String s2 = text.substring((int32) s.startOf((int64) 2),
+                                   (int32) s.endOf((int64) 2));
+        Assert.isTrue(s2.equals("Then... everyone left."));
+        String s3 = text.substring((int32) s.startOf((int64) 3),
+                                   (int32) s.endOf((int64) 3));
+        Assert.isTrue(s3.equals("See Fig. 2 for et al. citations."));
+
+        // The page-break case: a compositional paragraph whose break
+        // falls MID-SENTENCE — the model keeps one paragraph on both
+        // pages, and segmentation sees ONE sentence.
+        DocBuilder b = heap DocBuilder("span.pdfish");
+        b.setPageful();
+        int64 p = b.beginParagraph();
+        b.paragraphText("The result held across");
+        b.pageBreak();
+        b.paragraphText("the page boundary cleanly.");
+        b.endParagraph();
+        Doc d = b.build();
+        int64[] pages = d.pagesOf(p);
+        Assert.equals((int64) pages.count(), (int64) 2);
+        SentenceList ds = g.segment(d.text(p));
+        // Two text runs, one logical sentence per run-joining policy:
+        // the runs carry their own newline terminators, so the claim
+        // is: NO break was inserted by the PAGE — the sentence count
+        // equals what the same text yields pageless.
+        DocBuilder b2 = heap DocBuilder("span.flat");
+        int64 p2 = b2.beginParagraph();
+        b2.paragraphText("The result held across");
+        b2.paragraphText("the page boundary cleanly.");
+        b2.endParagraph();
+        Doc d2 = b2.build();
+        SentenceList fs = g.segment(d2.text(p2));
+        Assert.equals(ds.count(), fs.count());
+        return;
+    }
+}

@@ -158,6 +158,40 @@ public final class DocBuilder {
         return;
     }
 
+    /**
+     * Open a COMPOSITIONAL paragraph: {@link #paragraphText} appends
+     * runs and {@link #pageBreak} may fall between them, so a reader
+     * can emit a paragraph that genuinely spans a page break (§13.3,
+     * §5.4). Close with {@link #endParagraph}.
+     */
+    public int64 beginParagraph() {
+        int64 nid = this.addNode((int64) 2, this.top(), null, (int64) 0);
+        this.openStack.add(Int64.of(nid));
+        return nid;
+    }
+
+    /** Append a text run to the open compositional paragraph. */
+    public void paragraphText(String text) {
+        int64 nid = this.top();
+        if (this.kind.get((int32) nid).value() != 2) {
+            throw heap DocsException("DocBuilder: paragraphText outside "
+                + "a paragraph");
+        }
+        this.appendText(text);
+        return;
+    }
+
+    /** Close the open compositional paragraph. */
+    public void endParagraph() {
+        int64 nid = this.top();
+        if (this.kind.get((int32) nid).value() != 2) {
+            throw heap DocsException("DocBuilder: no open paragraph");
+        }
+        this.patchEnd(nid);
+        Int64 popped = this.openStack.removeAt(this.openStack.count() - 1);
+        return;
+    }
+
     /** A paragraph of text (§2.1). Returns its node id. */
     public int64 paragraph(String text) {
         int64 nid = this.addNode((int64) 2, this.top(), null, (int64) 0);
