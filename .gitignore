@@ -1,3 +1,4 @@
 build/
 __pycache__/
-corpus-tmp/
+tools/fixtures/corpus-tmp/*
+!tools/fixtures/corpus-tmp/.gitkeep
