@@ -1,0 +1,122 @@
+package dev.cajeta.docs;
+
+import cajeta.lang.String;
+
+/**
+ * Content sniffing (spec §4.1): the format is decided by the BYTES, not
+ * the file extension — a mislabelled file routes to the right reader.
+ * Recognized: `"html"`, `"json"`, `"markdown"`, `"csv"`, `"text"` —
+ * plus two distinguished rejections (§4.10, §4.9): `"pdf"` and
+ * `"zip"` (OOXML container) are named explicitly so their absence-of-a-
+ * reader diagnostic is precise, and an ENCRYPTED zip is distinct from
+ * "no text found".
+ */
+public final class Sniffer {
+
+    /** The sniffed format name for `bytes`. */
+    public static #String sniff(int8[] bytes) {
+        int64 n = (int64) bytes.count();
+        // Binary magics first.
+        if (n >= 4 && bytes[0] == 37 && bytes[1] == 80 && bytes[2] == 68
+            && bytes[3] == 70) {                       // %PDF
+            String s = "pdf";
+            return #s;
+        }
+        if (n >= 4 && bytes[0] == 80 && bytes[1] == 75 && bytes[2] == 3
+            && bytes[3] == 4) {                        // PK\x03\x04
+            String s = "zip";
+            return #s;
+        }
+        // Skip leading whitespace.
+        int64 i = 0;
+        while (i < n && (bytes[i] == 32 || bytes[i] == 9 || bytes[i] == 10
+                         || bytes[i] == 13)) {
+            i = i + 1;
+        }
+        if (i < n && bytes[i] == 60) {                 // '<'
+            if (Sniffer.hasTagAhead(bytes, i, n)) {
+                String s = "html";
+                return #s;
+            }
+        }
+        if (i < n && (bytes[i] == 123 || bytes[i] == 91)) {  // '{' '['
+            String s = "json";
+            return #s;
+        }
+        if (Sniffer.looksMarkdown(bytes, n)) {
+            String s = "markdown";
+            return #s;
+        }
+        if (Sniffer.looksCsv(bytes, n)) {
+            String s = "csv";
+            return #s;
+        }
+        String s = "text";
+        return #s;
+    }
+
+    /** True when an encrypted zip: the general-purpose crypto bit set. */
+    public static boolean zipIsEncrypted(int8[] bytes) {
+        if ((int64) bytes.count() < 8) { return false; }
+        // Local file header flags at offset 6, bit 0 = encrypted.
+        int64 flags = (int64) bytes[6];
+        if (flags < 0) { flags = flags + 256; }
+        return (flags & 1) == 1;
+    }
+
+    static boolean hasTagAhead(int8[] b, int64 i, int64 n) {
+        // "<!doctype", "<html", "<head", "<body", "<p", "<div", "<h1"…
+        // — any '<' followed by a letter or '!' counts as markup.
+        if (i + 1 >= n) { return false; }
+        int8 c = b[i + 1];
+        if (c == 33) { return true; }                  // '!'
+        if (c >= 97 && c <= 122) { return true; }
+        if (c >= 65 && c <= 90) { return true; }
+        return false;
+    }
+
+    static boolean looksMarkdown(int8[] b, int64 n) {
+        // Signals: '#' heading at a line start, "```" fence, "- " item,
+        // "[x](y)" link. Two distinct signals decide.
+        int64 signals = 0;
+        boolean lineStart = true;
+        int64 i = 0;
+        while (i < n && i < 4096) {
+            int8 c = b[i];
+            if (lineStart && c == 35) { signals = signals + 1; }
+            if (lineStart && c == 45 && i + 1 < n && b[i + 1] == 32) {
+                signals = signals + 1;
+            }
+            if (c == 96 && i + 2 < n && b[i + 1] == 96 && b[i + 2] == 96) {
+                signals = signals + 2;
+                i = i + 2;
+            }
+            if (c == 93 && i + 1 < n && b[i + 1] == 40) {
+                signals = signals + 1;
+            }
+            lineStart = c == 10;
+            i = i + 1;
+        }
+        return signals >= 2;
+    }
+
+    static boolean looksCsv(int8[] b, int64 n) {
+        // At least two lines with the SAME comma count >= 1.
+        int64 firstCommas = -1;
+        int64 commas = 0;
+        int64 lines = 0;
+        int64 i = 0;
+        while (i < n && i < 4096 && lines < 3) {
+            int8 c = b[i];
+            if (c == 44) { commas = commas + 1; }
+            if (c == 10) {
+                if (firstCommas < 0) { firstCommas = commas; }
+                else if (commas != firstCommas) { return false; }
+                lines = lines + 1;
+                commas = 0;
+            }
+            i = i + 1;
+        }
+        return lines >= 2 && firstCommas >= 1;
+    }
+}

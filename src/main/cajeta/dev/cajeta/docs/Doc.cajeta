@@ -74,6 +74,12 @@ public final class Doc {
     String metaAuthor;
     String metaLanguage;
 
+    // Outbound references (§4.11): unresolved, with anchor ranges.
+    String[] refTarget;
+    int64[] refLo;
+    int64[] refHi;
+    String baseUri;
+
     Doc(#String textBuf, #String hash, #String sourceId,
         #int32[] kind, #int64[] parent, #int64[] start, #int64[] end,
         #String[] title, #int32[] level,
@@ -83,7 +89,9 @@ public final class Doc {
         #int64[] tblIx, #int64[] tblRows, #int64[] tblCols,
         #String[] tblCells, #int64[] tblCellLo,
         #int64[] pageBreaks, boolean pageful,
-        #String metaTitle, #String metaAuthor, #String metaLanguage) {
+        #String metaTitle, #String metaAuthor, #String metaLanguage,
+        #String[] refTarget, #int64[] refLo, #int64[] refHi,
+        #String baseUri) {
         this.textBuf #= textBuf;
         this.hash #= hash;
         this.sourceId #= sourceId;
@@ -114,7 +122,38 @@ public final class Doc {
         this.metaTitle #= metaTitle;
         this.metaAuthor #= metaAuthor;
         this.metaLanguage #= metaLanguage;
+        this.refTarget #= refTarget;
+        this.refLo #= refLo;
+        this.refHi #= refHi;
+        this.baseUri #= baseUri;
         return;
+    }
+
+    // ---- outbound references (§4.11, §13.7.3) ------------------------
+
+    /** How many outbound references were extracted. */
+    public int64 refCount() { return (int64) this.refTarget.count(); }
+
+    /** The `i`-th reference target, UNRESOLVED (resolution is rag's). */
+    public #String refTargetAt(int64 i) {
+        String out = "" + this.refTarget[i];
+        return #out;
+    }
+
+    /** Anchor char-range start of the `i`-th reference. */
+    public int64 refStart(int64 i) { return this.refLo[i]; }
+
+    /** Anchor char-range end of the `i`-th reference. */
+    public int64 refEnd(int64 i) { return this.refHi[i]; }
+
+    /** The recorded base URI ("" when none). */
+    public #String baseUriOf() {
+        if (this.baseUri == null) {
+            String e = "";
+            return #e;
+        }
+        String out = "" + this.baseUri;
+        return #out;
     }
 
     // ---- identity and lifecycle (§6.3–§6.4) --------------------------

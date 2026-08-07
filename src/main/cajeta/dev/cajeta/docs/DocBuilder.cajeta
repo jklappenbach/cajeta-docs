@@ -3,6 +3,7 @@ package dev.cajeta.docs;
 import cajeta.collection.ArrayList;
 import cajeta.lang.Int64;
 import cajeta.lang.String;
+import cajeta.lang.StringBuilder;
 
 /**
  * Append-only construction of a {@link Doc} — the ONE interface every
@@ -42,6 +43,10 @@ public final class DocBuilder {
     ArrayList<Int64> tblCellLoA;
     ArrayList<Int64> pageBreaksA;
     boolean pageful;
+    ArrayList<String> refTargetA;
+    ArrayList<Int64> refLoA;
+    ArrayList<Int64> refHiA;
+    String baseUri;
     ArrayList<Int64> openStack;
     String metaTitle;
     String metaAuthor;
@@ -74,6 +79,10 @@ public final class DocBuilder {
         this.tblCellLoA = heap ArrayList<Int64>();
         this.pageBreaksA = heap ArrayList<Int64>();
         this.pageful = false;
+        this.refTargetA = heap ArrayList<String>();
+        this.refLoA = heap ArrayList<Int64>();
+        this.refHiA = heap ArrayList<Int64>();
+        this.baseUri = null;
         this.openStack = heap ArrayList<Int64>();
         this.built = false;
         // The root document node.
@@ -317,6 +326,27 @@ public final class DocBuilder {
                             null);
     }
 
+    /**
+     * An outbound reference (§4.11): recorded UNRESOLVED with the char
+     * range of its anchor in the buffer. Resolution is cajeta-rag's.
+     */
+    public void reference(String target, int64 lo, int64 hi) {
+        String t = "" + target;
+        this.refTargetA.add(#t);
+        this.refLoA.add(Int64.of(lo));
+        this.refHiA.add(Int64.of(hi));
+        return;
+    }
+
+    /** The document's base URI, recorded with its references (§4.11). */
+    public void setBaseUri(String uri) {
+        this.baseUri = "" + uri;
+        return;
+    }
+
+    /** The current buffer offset (readers place references with it). */
+    public int64 currentOffset() { return this.offset; }
+
     /** A page boundary at the current offset (§2.2). */
     public void pageBreak() {
         this.pageful = true;
@@ -350,13 +380,14 @@ public final class DocBuilder {
         }
         this.patchEnd((int64) 0);
 
-        // Concatenate the buffer.
-        String buf = "";
+        // Concatenate the buffer (linear, via StringBuilder).
+        StringBuilder sb = heap StringBuilder();
         int32 t = 0;
         while (t < this.parts.count()) {
-            buf = buf + this.parts.get(t);
+            sb.append(this.parts.get(t));
             t = t + 1;
         }
+        String buf = sb.toString();
         // FNV-1a 64 over the bytes.
         uint64 h = (uint64) 14695981039346656037;
         int64 n = buf.count();
@@ -436,13 +467,26 @@ public final class DocBuilder {
         i = 0;
         while (i < this.bytesLen) { bb[i] = this.bytesBuf[i]; i = i + 1; }
 
+        int64 nr = (int64) this.refTargetA.count();
+        String[] rt = heap String[nr];
+        int64[] rlo = heap int64[nr];
+        int64[] rhi = heap int64[nr];
+        i = 0;
+        while (i < nr) {
+            rt[i] = "" + this.refTargetA.get((int32) i);
+            rlo[i] = this.refLoA.get((int32) i).value();
+            rhi[i] = this.refHiA.get((int32) i).value();
+            i = i + 1;
+        }
         String src = "" + this.sourceId;
         String mt = null;
         if (this.metaTitle != null) { mt = "" + this.metaTitle; }
+        String bu = null;
+        if (this.baseUri != null) { bu = "" + this.baseUri; }
         Doc d = heap Doc(#buf, #hex, #src, #kk, #pp, #ss, #ee, #tt, #ll,
             #ek, #ec, #ea, #es, #er, #bb, #blo, #bhi,
             #tix, #trw, #tcl, #tcs, #tlo, #pb, this.pageful,
-            #mt, null, null);
+            #mt, null, null, #rt, #rlo, #rhi, #bu);
         return #d;
     }
 

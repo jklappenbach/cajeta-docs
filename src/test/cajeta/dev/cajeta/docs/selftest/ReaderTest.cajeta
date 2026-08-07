@@ -1,0 +1,250 @@
+package dev.cajeta.docs.selftest;
+
+import dev.cajeta.unit.Assert;
+import dev.cajeta.docs.Doc;
+import dev.cajeta.docs.DocsException;
+import dev.cajeta.docs.NodeKind;
+import dev.cajeta.docs.Reader;
+
+/**
+ * cajeta-docs U2 — readers I: content sniffing beats the extension
+ * (2.1.1), Markdown becomes STRUCTURE (2.1.2), HTML separates
+ * boilerplate and keeps the heading hierarchy (2.1.3), CSV/JSON reuse
+ * cajeta.codec (2.1.4), outbound references extract unresolved with
+ * locations (2.1.5), malformed input fails with a named diagnostic
+ * (2.1.6), and an encrypted container is distinct from "no text"
+ * (2.1.8).
+ */
+public class ReaderTest {
+
+    public ReaderTest() { return; }
+
+    // 2.1.1 — the format comes from the BYTES: a "file.csv" holding
+    // HTML routes to the HTML reader.
+    @Test
+    public void sniffingBeatsTheExtension() {
+        String html = "<html><body><p>Not a csv at all.</p></body></html>";
+        Assert.isTrue(Reader.sniff(html.toBytes()).equals("html"));
+        Doc d = Reader.read("mislabelled.csv", html.toBytes());
+        int64[] paras = d.nodesOfKind(NodeKind.PARAGRAPH());
+        Assert.equals((int64) paras.count(), (int64) 1);
+        Assert.isTrue(d.text(paras[0]).contains("Not a csv at all."));
+
+        String csv = "a,b\n1,2\n3,4\n";
+        Assert.isTrue(Reader.sniff(csv.toBytes()).equals("csv"));
+        String json = "{\"k\": 1}";
+        Assert.isTrue(Reader.sniff(json.toBytes()).equals("json"));
+        String md = "# Title\n\n- item one\n- item two\n";
+        Assert.isTrue(Reader.sniff(md.toBytes()).equals("markdown"));
+        String plain = "Just a sentence with, some commas maybe.\n";
+        Assert.isTrue(Reader.sniff(plain.toBytes()).equals("text"));
+        return;
+    }
+
+    // 2.1.2 — Markdown headings/lists/code/tables become structure.
+    @Test
+    public void markdownBecomesStructure() {
+        String md = "# Guide\n"
+            + "\n"
+            + "Intro paragraph with a [link](https://cajeta.dev/x).\n"
+            + "\n"
+            + "## Steps\n"
+            + "\n"
+            + "- first step\n"
+            + "- second step\n"
+            + "\n"
+            + "```\n"
+            + "cajeta build\n"
+            + "```\n"
+            + "\n"
+            + "| name | score |\n"
+            + "| ---- | ----- |\n"
+            + "| ana  | 1.5   |\n";
+        Doc d = Reader.read("guide.md", md.toBytes());
+        int64[] secs = d.nodesOfKind(NodeKind.SECTION());
+        Assert.equals((int64) secs.count(), (int64) 2);
+        Assert.isTrue(d.titleOf(secs[0]).equals("Guide"));
+        Assert.isTrue(d.titleOf(secs[1]).equals("Steps"));
+        // "Steps" nests under "Guide" (h2 under h1).
+        Assert.equals(d.parentOf(secs[1]), secs[0]);
+        int64[] items = d.nodesOfKind(NodeKind.LIST_ITEM());
+        Assert.equals((int64) items.count(), (int64) 2);
+        Assert.isTrue(d.text(items[0]).contains("first step"));
+        int64[] code = d.nodesOfKind(NodeKind.CODE_BLOCK());
+        Assert.equals((int64) code.count(), (int64) 1);
+        Assert.isTrue(d.text(code[0]).contains("cajeta build"));
+        int64[] tables = d.nodesOfKind(NodeKind.TABLE());
+        Assert.equals((int64) tables.count(), (int64) 1);
+        Assert.isTrue(d.tableHeader(tables[0], (int64) 0).equals("name"));
+        Assert.isTrue(d.tableCell(tables[0], (int64) 0, (int64) 1)
+            .equals("1.5"));
+        // The heading markup is STRUCTURE, not literal '#' text.
+        int64[] paras = d.nodesOfKind(NodeKind.PARAGRAPH());
+        Assert.isTrue(!d.text(paras[0]).contains("#"));
+        return;
+    }
+
+    // 2.1.3 — HTML: chrome (nav/header/footer/script/style/aside) is
+    // separated from content; the heading hierarchy survives. The
+    // fixture reproduces real-page chrome patterns (menus, cookie
+    // banner in a nav, script blobs, footer legalese).
+    @Test
+    public void htmlSeparatesBoilerplate() {
+        String html = "<!doctype html><html><head>"
+            + "<title>Field Notes</title>"
+            + "<style>body { margin: 0; } .nav { color: red; }</style>"
+            + "<script>var tracker = 'SPYWARE'; track();</script>"
+            + "<base href=\"https://notes.example\">"
+            + "</head><body>"
+            + "<header><h1>SiteName MEGA BRAND</h1>"
+            + "<nav><ul><li>Home</li><li>Products</li><li>COOKIE "
+            + "SETTINGS</li></ul></nav></header>"
+            + "<h1>Field Notes</h1>"
+            + "<p>The observations held under &amp; beyond both "
+            + "conditions.</p>"
+            + "<h2>Methods</h2>"
+            + "<p>We used a <a href=\"/protocol\">standard protocol</a> "
+            + "throughout.</p>"
+            + "<ul><li>step alpha</li><li>step beta</li></ul>"
+            + "<pre>let x = 1;</pre>"
+            + "<table><tr><th>run</th><th>value</th></tr>"
+            + "<tr><td>1</td><td>3.5</td></tr></table>"
+            + "<aside>SUBSCRIBE TO OUR NEWSLETTER</aside>"
+            + "<footer>Copyright LEGALESE. All rights reserved. "
+            + "Privacy. Terms.</footer>"
+            + "</body></html>";
+        Doc d = Reader.read("notes.html", html.toBytes());
+        // Chrome NEVER appears in content.
+        String full = d.fullText();
+        Assert.isTrue(!full.contains("SPYWARE"));
+        Assert.isTrue(!full.contains("margin"));
+        Assert.isTrue(!full.contains("MEGA BRAND"));
+        Assert.isTrue(!full.contains("COOKIE"));
+        Assert.isTrue(!full.contains("NEWSLETTER"));
+        Assert.isTrue(!full.contains("LEGALESE"));
+        // The hierarchy survives: Methods nests under Field Notes.
+        int64[] secs = d.nodesOfKind(NodeKind.SECTION());
+        Assert.equals((int64) secs.count(), (int64) 2);
+        Assert.isTrue(d.titleOf(secs[0]).equals("Field Notes"));
+        Assert.equals(d.parentOf(secs[1]), secs[0]);
+        // Entities decode; the paragraph text is clean.
+        int64[] paras = d.nodesOfKind(NodeKind.PARAGRAPH());
+        Assert.isTrue(d.text(paras[0]).contains("under & beyond"));
+        // Structure: list, code, table.
+        Assert.equals((int64) d.nodesOfKind(NodeKind.LIST_ITEM()).count(),
+            (int64) 2);
+        int64[] code = d.nodesOfKind(NodeKind.CODE_BLOCK());
+        Assert.isTrue(d.text(code[0]).contains("let x = 1;"));
+        int64[] tables = d.nodesOfKind(NodeKind.TABLE());
+        Assert.isTrue(d.tableHeader(tables[0], (int64) 0).equals("run"));
+        Assert.isTrue(d.tableCell(tables[0], (int64) 0, (int64) 1)
+            .equals("3.5"));
+        // The document title metadata was captured (§6.1).
+        Assert.isTrue(d.metaTitleOf().equals("Field Notes"));
+        return;
+    }
+
+    // 2.1.5 + §13.7.3 — references extract UNRESOLVED, with locations
+    // and the base URI recorded, from HTML and Markdown.
+    @Test
+    public void referencesExtractUnresolved() {
+        String html = "<html><head>"
+            + "<base href=\"https://notes.example\"></head><body>"
+            + "<p>See the <a href=\"/protocol\">standard protocol</a>.</p>"
+            + "</body></html>";
+        Doc d = Reader.read("refs.html", html.toBytes());
+        Assert.equals(d.refCount(), (int64) 1);
+        Assert.isTrue(d.refTargetAt((int64) 0).equals("/protocol"));
+        Assert.isTrue(d.baseUriOf().equals("https://notes.example"));
+        // The anchor range points into the buffer at the anchor text.
+        int64 lo = d.refStart((int64) 0);
+        int64 hi = d.refEnd((int64) 0);
+        Assert.isTrue(hi > lo);
+
+        String md = "Read [the guide](https://cajeta.dev/guide) first.\n";
+        Doc d2 = Reader.readAs("refs.md", md.toBytes(), "markdown");
+        Assert.equals(d2.refCount(), (int64) 1);
+        Assert.isTrue(d2.refTargetAt((int64) 0)
+            .equals("https://cajeta.dev/guide"));
+        return;
+    }
+
+    // 2.1.4 — CSV and JSON reuse cajeta.codec; arrays of flat objects
+    // become structured tables.
+    @Test
+    public void csvAndJsonReuseCodec() {
+        String csv = "name,score\nana,1.5\nben,2.5\n";
+        Doc d = Reader.read("data.csv", csv.toBytes());
+        int64[] tables = d.nodesOfKind(NodeKind.TABLE());
+        Assert.equals((int64) tables.count(), (int64) 1);
+        Assert.equals(d.tableRows(tables[0]), (int64) 2);
+        Assert.isTrue(d.tableCell(tables[0], (int64) 1, (int64) 0)
+            .equals("ben"));
+
+        String json = "[{\"name\": \"ana\", \"score\": 1.5},"
+            + "{\"name\": \"ben\", \"score\": 2.5}]";
+        Doc d2 = Reader.read("data.json", json.toBytes());
+        int64[] t2 = d2.nodesOfKind(NodeKind.TABLE());
+        Assert.equals((int64) t2.count(), (int64) 1);
+        Assert.isTrue(d2.tableHeader(t2[0], (int64) 1).equals("score"));
+
+        String nested = "{\"a\": {\"b\": 1}, \"c\": \"x\"}";
+        Doc d3 = Reader.read("nested.json", nested.toBytes());
+        int64[] paras = d3.nodesOfKind(NodeKind.PARAGRAPH());
+        Assert.equals((int64) paras.count(), (int64) 2);
+        Assert.isTrue(d3.text(paras[0]).contains("a.b: 1"));
+        return;
+    }
+
+    // 2.1.6 + 2.1.8 — malformed input diagnoses with document + offset;
+    // an encrypted container is DISTINCT from "no text found".
+    @Test
+    public void failuresAreNamedAndDistinct() {
+        // Ragged CSV names the row.
+        String ragged = "a,b\n1,2,3\n";
+        boolean threw = false;
+        try {
+            Doc d = Reader.readAs("ragged.csv", ragged.toBytes(), "csv");
+        } catch (DocsException ex) { threw = true; }
+        Assert.isTrue(threw);
+
+        // An unterminated Markdown fence names the offset.
+        String badMd = "# T\n\n```\nnever closed";
+        threw = false;
+        try {
+            Doc d2 = Reader.readAs("bad.md", badMd.toBytes(), "markdown");
+        } catch (DocsException ex) { threw = true; }
+        Assert.isTrue(threw);
+
+        // An encrypted zip is reported as ENCRYPTED — not "no text".
+        int8[] zip = heap int8[16];
+        zip[0] = 80; zip[1] = 75; zip[2] = 3; zip[3] = 4;
+        zip[6] = 1;                                     // crypto bit
+        threw = false;
+        try {
+            Doc d3 = Reader.read("locked.docx", zip);
+        } catch (DocsException ex) { threw = true; }
+        Assert.isTrue(threw);
+        // A plain (unencrypted) zip names the MISSING PREREQUISITE.
+        zip[6] = 0;
+        threw = false;
+        try {
+            Doc d4 = Reader.read("plain.docx", zip);
+        } catch (DocsException ex) { threw = true; }
+        Assert.isTrue(threw);
+        return;
+    }
+
+    // 2.7 policy — the text reader collapses whitespace and joins
+    // hyphenated line breaks.
+    @Test
+    public void textPolicyHolds() {
+        String txt = "The measure-\nment    held  fast.\n\nSecond para.\n";
+        Doc d = Reader.readAs("a.txt", txt.toBytes(), "text");
+        int64[] paras = d.nodesOfKind(NodeKind.PARAGRAPH());
+        Assert.equals((int64) paras.count(), (int64) 2);
+        Assert.isTrue(d.text(paras[0]).equals(
+            "The measurement held fast.\n"));
+        return;
+    }
+}

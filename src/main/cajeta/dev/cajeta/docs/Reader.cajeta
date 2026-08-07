@@ -1,0 +1,62 @@
+package dev.cajeta.docs;
+
+import cajeta.lang.String;
+
+/**
+ * The reader front door (spec §4.1, §4.8): {@link #read} SNIFFS the
+ * content — never the file extension — and dispatches to the matching
+ * reader; {@link #readAs} forces a format. Formats without a reader yet
+ * are named precisely: `"pdf"` and `"zip"` (OOXML) report their missing
+ * prerequisite, and an ENCRYPTED container is reported distinctly from
+ * "no text found" (§4.10).
+ */
+public final class Reader {
+
+    /** Sniff and read (§4.1). */
+    public static #Doc read(String sourceId, int8[] bytes) {
+        String fmt = Sniffer.sniff(bytes);
+        return Reader.readAs(sourceId, bytes, fmt);
+    }
+
+    /** Read as an explicit format. */
+    public static #Doc readAs(String sourceId, int8[] bytes,
+                              String format) {
+        if (format.equals("text")) {
+            return TextReader.read(sourceId, bytes);
+        }
+        if (format.equals("markdown")) {
+            return MarkdownReader.read(sourceId, bytes);
+        }
+        if (format.equals("html")) {
+            return HtmlReader.read(sourceId, bytes);
+        }
+        if (format.equals("csv")) {
+            return CsvJsonReader.readCsv(sourceId, bytes);
+        }
+        if (format.equals("json")) {
+            return CsvJsonReader.readJson(sourceId, bytes);
+        }
+        if (format.equals("zip")) {
+            if (Sniffer.zipIsEncrypted(bytes)) {
+                throw heap DocsException("Reader: " + sourceId
+                    + ": the container is ENCRYPTED (password-protected) "
+                    + "— distinct from finding no text");
+            }
+            throw heap DocsException("Reader: " + sourceId
+                + ": OOXML container detected — the OOXML reader awaits "
+                + "cajeta-codec's XML parser (plan U4)");
+        }
+        if (format.equals("pdf")) {
+            throw heap DocsException("Reader: " + sourceId
+                + ": PDF detected — the PDF reader awaits cajeta-font "
+                + "(plan U5)");
+        }
+        throw heap DocsException("Reader: " + sourceId
+            + ": unknown format \"" + format + "\"");
+    }
+
+    /** The sniffed format name (§4.1). */
+    public static #String sniff(int8[] bytes) {
+        return Sniffer.sniff(bytes);
+    }
+}
