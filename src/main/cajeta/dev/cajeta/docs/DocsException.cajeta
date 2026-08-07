@@ -1,0 +1,16 @@
+package dev.cajeta.docs;
+
+import cajeta.error.RecoverableException;
+import cajeta.lang.String;
+
+/**
+ * Thrown on document-model misuse and on reader failures a caller can
+ * act on — always naming the document and, for parse failures, the
+ * offset (spec §4.9: diagnostics, never hangs, never silent).
+ */
+public class DocsException extends RecoverableException {
+    public DocsException(String message) {
+        this.message = message;
+        this.cause = 0;
+    }
+}

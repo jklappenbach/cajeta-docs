@@ -1,0 +1,22 @@
+package dev.cajeta.docs;
+
+/**
+ * cajeta-docs — THE text/document library: one parse produces a
+ * structured model (a logical tree of typed nodes PLUS an orthogonal
+ * physical page/line view over the same content), and every consumer —
+ * tokenization, TF-IDF, chunking, recsys, rag — selects a granularity
+ * from that model rather than re-parsing (spec §13.2).
+ *
+ * Deliberately depends on NO other cajeta library (§12.7): the
+ * `Transformer` adapter for `dev.cajeta.ml` ships with ml, not here.
+ *
+ * This is the library entry class (the `--emit=cja` root). The surface
+ * lands unit by unit per the cajeta-docs plan.
+ */
+public final class Docs {
+    /** The library version. */
+    public static #String version() { return "0.1.0"; }
+
+    /** `--emit=cja` entry. */
+    public static int32 run() { return 0; }
+}

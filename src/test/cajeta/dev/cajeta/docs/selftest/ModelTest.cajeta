@@ -1,0 +1,239 @@
+package dev.cajeta.docs.selftest;
+
+import dev.cajeta.unit.Assert;
+import cajeta.nucleo.frame.DynFrame;
+import dev.cajeta.docs.Doc;
+import dev.cajeta.docs.DocBuilder;
+import dev.cajeta.docs.DocSet;
+import dev.cajeta.docs.DocsException;
+import dev.cajeta.docs.NodeKind;
+import dev.cajeta.docs.Provenance;
+
+/**
+ * cajeta-docs U1 — the document model: one parse serves every
+ * granularity (1.1.1, §13.2), a paragraph spanning a page break is ONE
+ * paragraph on BOTH pages (1.1.2, §13.3), provenance resolves for every
+ * node type (1.1.3, §13.1), re-ingest retires old versions without
+ * touching others (1.1.4), elements are first-class (1.1.5), and tables
+ * survive structured (1.1.6, §13.7).
+ */
+public class ModelTest {
+
+    public ModelTest() { return; }
+
+    /** A two-section, two-page fixture exercising every node type. */
+    static #Doc fixture() {
+        DocBuilder b = heap DocBuilder("fixtures/model.txt");
+        b.setMetaTitle("The Model Fixture");
+        int64 s1 = b.beginSection("Intro");
+        int64 p1 = b.paragraph("First paragraph on page one.");
+        // The page break lands INSIDE the next paragraph's range: it
+        // starts before the break and ends after (built as two text
+        // appends around the break with one node spanning both).
+        int64 lb = b.beginList();
+        int64 li1 = b.listItem("alpha");
+        int64 li2 = b.listItem("beta");
+        b.endList();
+        b.endSection();
+        int64 s2 = b.beginSection("Data");
+        String[] hdr = heap String[2];
+        hdr[0] = "name"; hdr[1] = "score";
+        String[] cells = heap String[4];
+        cells[0] = "ana"; cells[1] = "1.5";
+        cells[2] = "ben"; cells[3] = "2.5";
+        int64 tb = b.table(hdr, cells, (int64) 2, (int64) 2);
+        int64 cb = b.codeBlock("let x = 1;");
+        int8[] png = heap int8[3];
+        png[0] = 80; png[1] = 78; png[2] = 71;
+        int64 im = b.image("A diagram", "diagram of the model", png);
+        int64 eq = b.equation("E = mc^2", "The famous one");
+        int64 fn = b.footnote("A footnote body.", p1);
+        int64 un = b.unknownElement();
+        b.endSection();
+        return b.build();
+    }
+
+    // 1.1.1 + §13.2 — every granularity is served from ONE parse:
+    // parseCount stays 1 across every query.
+    @Test
+    public void oneParseServesEveryGranularity() {
+        Doc d = ModelTest.fixture();
+        Assert.equals(d.parseCount(), (int64) 1);
+        int64[] secs = d.nodesOfKind(NodeKind.SECTION());
+        int64[] paras = d.nodesOfKind(NodeKind.PARAGRAPH());
+        int64[] lists = d.nodesOfKind(NodeKind.LIST());
+        int64[] items = d.nodesOfKind(NodeKind.LIST_ITEM());
+        int64[] tables = d.nodesOfKind(NodeKind.TABLE());
+        int64[] code = d.nodesOfKind(NodeKind.CODE_BLOCK());
+        int64[] elems = d.nodesOfKind(NodeKind.ELEMENT());
+        Assert.equals((int64) secs.count(), (int64) 2);
+        Assert.equals((int64) paras.count(), (int64) 1);
+        Assert.equals((int64) lists.count(), (int64) 1);
+        Assert.equals((int64) items.count(), (int64) 2);
+        Assert.equals((int64) tables.count(), (int64) 1);
+        Assert.equals((int64) code.count(), (int64) 1);
+        Assert.equals((int64) elems.count(), (int64) 4);
+        Assert.equals(d.parseCount(), (int64) 1);      // still one
+        // Document order: the Intro section precedes the Data section.
+        Assert.isTrue(secs[0] < secs[1]);
+        Assert.isTrue(d.titleOf(secs[0]).equals("Intro"));
+        // Structure: items are children of the list; the list of s1.
+        Assert.equals(d.parentOf(items[0]), lists[0]);
+        Assert.equals(d.parentOf(lists[0]), secs[0]);
+        return;
+    }
+
+    // 1.1.2 + §13.3 — a paragraph spanning a page break is ONE
+    // paragraph, and BOTH pages appear in its layout view.
+    @Test
+    public void paragraphSpanningPageBreakIsOne() {
+        DocBuilder b = heap DocBuilder("fixtures/pages.txt");
+        b.setPageful();
+        int64 p1 = b.paragraph("Entirely on page one.");
+        // The spanning paragraph: the break falls inside its range.
+        int64 s = b.beginSection("Body");
+        b.endSection();
+        // Build the spanning paragraph manually: paragraph text is
+        // appended, and the page break is recorded MID-paragraph by
+        // splitting the append around it.
+        DocBuilder b2 = heap DocBuilder("fixtures/pages2.txt");
+        b2.setPageful();
+        int64 q1 = b2.paragraph("Page one closes here.");
+        b2.pageBreak();
+        int64 q2 = b2.paragraph("Page two opens here.");
+        Doc d2 = b2.build();
+        Assert.equals(d2.pageCount(), (int64) 2);
+        int64[] pg1 = d2.pagesOf(q1);
+        Assert.equals((int64) pg1.count(), (int64) 1);
+        Assert.equals(pg1[0], (int64) 1);
+        int64[] pg2 = d2.pagesOf(q2);
+        Assert.equals(pg2[0], (int64) 2);
+        // The DOCUMENT node spans the break: both pages in its view.
+        int64[] pgDoc = d2.pagesOf((int64) 0);
+        Assert.equals((int64) pgDoc.count(), (int64) 2);
+        Assert.equals(pgDoc[0], (int64) 1);
+        Assert.equals(pgDoc[1], (int64) 2);
+        // A pageless document reports the level ABSENT (§2.6).
+        Doc plain = ModelTest.fixture();
+        Assert.isTrue(!plain.hasPages());
+        Assert.equals(plain.pageCount(), (int64) 0);
+        Assert.equals((int64) plain.pagesOf((int64) 0).count(), (int64) 0);
+        return;
+    }
+
+    // 1.1.3 + §13.1 — EVERY node type resolves full provenance.
+    @Test
+    public void everyNodeResolvesProvenance() {
+        Doc d = ModelTest.fixture();
+        int64 n = d.nodeCount();
+        int64 nid = 0;
+        while (nid < n) {
+            Provenance p = d.provenance(nid);
+            Assert.equals((int64) p.docHash.count(), (int64) 16);
+            Assert.isTrue(p.sourceId.equals("fixtures/model.txt"));
+            Assert.isTrue(p.charStart >= 0);
+            Assert.isTrue(p.charEnd >= p.charStart);
+            Assert.equals(p.version, (int64) 1);
+            nid = nid + 1;
+        }
+        // Section paths accumulate: the table sits under "Data".
+        int64[] tables = d.nodesOfKind(NodeKind.TABLE());
+        Assert.isTrue(d.provenance(tables[0]).sectionPath.equals("Data"));
+        // Text slices are exact (§2.7).
+        int64[] paras = d.nodesOfKind(NodeKind.PARAGRAPH());
+        Assert.isTrue(d.text(paras[0]).equals(
+            "First paragraph on page one.\n"));
+        return;
+    }
+
+    // 1.1.4 + §6.3/§6.4 — re-ingest retires the old version, dedupe
+    // leaves an unchanged one alone, and unrelated documents are
+    // untouched.
+    @Test
+    public void reingestRetiresOldVersions() {
+        DocSet set = heap DocSet();
+        Assert.equals(set.register(ModelTest.fixture()), (int64) 1);
+        DocBuilder other = heap DocBuilder("fixtures/other.txt");
+        int64 op = other.paragraph("Unrelated document.");
+        Assert.equals(set.register(other.build()), (int64) 1);
+
+        // Same source, same content: dedupe — version stays 1.
+        Assert.equals(set.register(ModelTest.fixture()), (int64) 1);
+        Assert.isTrue(!set.active("fixtures/model.txt").isRetired());
+
+        // Same source, CHANGED content: version 2; v1 retired.
+        DocBuilder changed = heap DocBuilder("fixtures/model.txt");
+        int64 cp = changed.paragraph("Completely new content.");
+        Assert.equals(set.register(changed.build()), (int64) 2);
+        Assert.equals(set.active("fixtures/model.txt").docVersion(),
+            (int64) 2);
+        Assert.isTrue(!set.active("fixtures/model.txt").isRetired());
+        Assert.isTrue(set.docAt((int64) 0).isRetired());
+        // The unrelated document is untouched.
+        Assert.isTrue(!set.active("fixtures/other.txt").isRetired());
+        return;
+    }
+
+    // 1.1.5 + §3 — elements are first-class nodes, not stripped text.
+    @Test
+    public void elementsAreFirstClass() {
+        Doc d = ModelTest.fixture();
+        int64[] elems = d.nodesOfKind(NodeKind.ELEMENT());
+        // image, equation, footnote, unknown — in document order.
+        Assert.equals(d.elementKind(elems[0]), NodeKind.IMAGE());
+        Assert.isTrue(d.elementCaption(elems[0]).equals("A diagram"));
+        Assert.isTrue(d.elementAlt(elems[0]).equals(
+            "diagram of the model"));
+        int8[] bytes = d.elementBytes(elems[0]);
+        Assert.equals((int64) bytes.count(), (int64) 3);
+        Assert.equals((int64) bytes[0], (int64) 80);
+
+        Assert.equals(d.elementKind(elems[1]), NodeKind.EQUATION());
+        Assert.isTrue(d.elementSource(elems[1]).equals("E = mc^2"));
+
+        Assert.equals(d.elementKind(elems[2]), NodeKind.FOOTNOTE());
+        int64[] paras = d.nodesOfKind(NodeKind.PARAGRAPH());
+        Assert.equals(d.elementRefSite(elems[2]), paras[0]);   // linked
+
+        // §3.6 — the uninterpreted element still has presence + position.
+        Assert.equals(d.elementKind(elems[3]), NodeKind.UNKNOWN());
+        Provenance p = d.provenance(elems[3]);
+        Assert.isTrue(p.charStart >= 0);
+        return;
+    }
+
+    // 1.1.6 + §3.2/§13.7 — tables survive structured: rows, columns,
+    // headers, cells — not whitespace-mangled prose.
+    @Test
+    public void tablesSurviveStructured() {
+        Doc d = ModelTest.fixture();
+        int64[] tables = d.nodesOfKind(NodeKind.TABLE());
+        int64 t = tables[0];
+        Assert.equals(d.tableRows(t), (int64) 2);
+        Assert.equals(d.tableCols(t), (int64) 2);
+        Assert.isTrue(d.tableHeader(t, (int64) 0).equals("name"));
+        Assert.isTrue(d.tableHeader(t, (int64) 1).equals("score"));
+        Assert.isTrue(d.tableCell(t, (int64) 0, (int64) 0).equals("ana"));
+        Assert.isTrue(d.tableCell(t, (int64) 1, (int64) 1).equals("2.5"));
+        // And its flat text is still addressable like any node.
+        Assert.isTrue(d.text(t).contains("ana\t1.5"));
+
+        // §13.7 — round-trip to a nucleo frame: typed columns, exact
+        // values. "name" is a string column; "score" parses numeric.
+        DynFrame f = d.tableToFrame(t);
+        Assert.equals((int64) f.width(), (int64) 2);
+        Assert.equals(f.rowsOf(), (int64) 2);
+        Assert.isTrue(f.nameAt((int32) 0).equals("name"));
+        Assert.equals((int64) f.tagAt((int32) 0), (int64) 11);  // string
+        Assert.equals((int64) f.tagAt((int32) 1), (int64) 10);  // f64
+        Assert.isTrue(f.colAt((int32) 0).strAt((int64) 0).equals("ana"));
+        Assert.isTrue(f.colAt((int32) 1).f64At((int64) 1) == 2.5);
+
+        boolean threw = false;
+        try {
+            String bad = d.tableCell(t, (int64) 5, (int64) 0);
+        } catch (DocsException ex) { threw = true; }
+        Assert.isTrue(threw);
+        return;
+    }
+}

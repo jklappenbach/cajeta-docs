@@ -1,0 +1,465 @@
+package dev.cajeta.docs;
+
+import cajeta.collection.ArrayList;
+import cajeta.lang.Int64;
+import cajeta.lang.String;
+
+/**
+ * Append-only construction of a {@link Doc} — the ONE interface every
+ * reader populates (spec §4.8). Block content (paragraphs, code, list
+ * items, table flat text, footnotes) appends to the canonical buffer
+ * with exactly one `\n` terminator; sections nest through
+ * begin/endSection; {@link #pageBreak} records the physical view where
+ * the format has one. `build()` seals the arena, hashes the text
+ * (FNV-1a 64, §6.3), and the resulting Doc's parseCount is 1 forever
+ * (§13.2).
+ */
+public final class DocBuilder {
+
+    String sourceId;
+    ArrayList<String> parts;
+    int64 offset;
+
+    ArrayList<Int64> kind;
+    ArrayList<Int64> parent;
+    ArrayList<Int64> startA;
+    ArrayList<Int64> endA;
+    ArrayList<String> titleA;
+    ArrayList<Int64> levelA;
+    ArrayList<Int64> elemKindA;
+    ArrayList<String> elemCapA;
+    ArrayList<String> elemAltA;
+    ArrayList<String> elemSrcA;
+    ArrayList<Int64> elemRefA;
+    ArrayList<Int64> elemByteLoA;
+    ArrayList<Int64> elemByteHiA;
+    int8[] bytesBuf;
+    int64 bytesLen;
+    ArrayList<Int64> tblIxA;
+    ArrayList<Int64> tblRowsA;
+    ArrayList<Int64> tblColsA;
+    ArrayList<String> tblCellsA;
+    ArrayList<Int64> tblCellLoA;
+    ArrayList<Int64> pageBreaksA;
+    boolean pageful;
+    ArrayList<Int64> openStack;
+    String metaTitle;
+    String metaAuthor;
+    String metaLanguage;
+    boolean built;
+
+    public DocBuilder(String sourceId) {
+        this.sourceId = "" + sourceId;
+        this.parts = heap ArrayList<String>();
+        this.offset = 0;
+        this.kind = heap ArrayList<Int64>();
+        this.parent = heap ArrayList<Int64>();
+        this.startA = heap ArrayList<Int64>();
+        this.endA = heap ArrayList<Int64>();
+        this.titleA = heap ArrayList<String>();
+        this.levelA = heap ArrayList<Int64>();
+        this.elemKindA = heap ArrayList<Int64>();
+        this.elemCapA = heap ArrayList<String>();
+        this.elemAltA = heap ArrayList<String>();
+        this.elemSrcA = heap ArrayList<String>();
+        this.elemRefA = heap ArrayList<Int64>();
+        this.elemByteLoA = heap ArrayList<Int64>();
+        this.elemByteHiA = heap ArrayList<Int64>();
+        this.bytesBuf #= heap int8[64];
+        this.bytesLen = 0;
+        this.tblIxA = heap ArrayList<Int64>();
+        this.tblRowsA = heap ArrayList<Int64>();
+        this.tblColsA = heap ArrayList<Int64>();
+        this.tblCellsA = heap ArrayList<String>();
+        this.tblCellLoA = heap ArrayList<Int64>();
+        this.pageBreaksA = heap ArrayList<Int64>();
+        this.pageful = false;
+        this.openStack = heap ArrayList<Int64>();
+        this.built = false;
+        // The root document node.
+        this.addNode((int64) 0, (int64) -1, null, (int64) 0);
+        this.openStack.add(Int64.of((int64) 0));
+        return;
+    }
+
+    int64 addNode(int64 k, int64 par, String title, int64 level) {
+        int64 nid = (int64) this.kind.count();
+        this.kind.add(Int64.of(k));
+        this.parent.add(Int64.of(par));
+        this.startA.add(Int64.of(this.offset));
+        this.endA.add(Int64.of(this.offset));
+        if (title == null) { this.titleA.add(null); }
+        else {
+            String t = "" + title;
+            this.titleA.add(#t);
+        }
+        this.levelA.add(Int64.of(level));
+        this.elemKindA.add(Int64.of((int64) -1));
+        this.elemCapA.add(null);
+        this.elemAltA.add(null);
+        this.elemSrcA.add(null);
+        this.elemRefA.add(Int64.of((int64) -1));
+        this.elemByteLoA.add(Int64.of((int64) 0));
+        this.elemByteHiA.add(Int64.of((int64) 0));
+        this.tblIxA.add(Int64.of((int64) -1));
+        return nid;
+    }
+
+    int64 top() {
+        return this.openStack.get(this.openStack.count() - 1).value();
+    }
+
+    void appendText(String s) {
+        String withNl = s + "\n";
+        int64 len = withNl.count();
+        this.parts.add(#withNl);
+        this.offset = this.offset + len;
+        return;
+    }
+
+    void patchEnd(int64 nid) {
+        this.endA.set((int32) nid, Int64.of(this.offset));
+        return;
+    }
+
+    /** Open a section (§2.1); nests. */
+    public int64 beginSection(String title) {
+        int64 depth = 0;
+        int32 t = 0;
+        while (t < this.openStack.count()) {
+            int64 nid = this.openStack.get(t).value();
+            if (this.kind.get((int32) nid).value() == 1) {
+                depth = depth + 1;
+            }
+            t = t + 1;
+        }
+        int64 nid = this.addNode((int64) 1, this.top(), title, depth + 1);
+        this.openStack.add(Int64.of(nid));
+        return nid;
+    }
+
+    /** Close the innermost open section. */
+    public void endSection() {
+        int64 nid = this.top();
+        if (this.kind.get((int32) nid).value() != 1) {
+            throw heap DocsException("DocBuilder: no open section");
+        }
+        this.patchEnd(nid);
+        Int64 popped = this.openStack.removeAt(this.openStack.count() - 1);
+        return;
+    }
+
+    /** A paragraph of text (§2.1). Returns its node id. */
+    public int64 paragraph(String text) {
+        int64 nid = this.addNode((int64) 2, this.top(), null, (int64) 0);
+        this.appendText(text);
+        this.patchEnd(nid);
+        return nid;
+    }
+
+    /** Open a list (§2.1). */
+    public int64 beginList() {
+        int64 nid = this.addNode((int64) 4, this.top(), null, (int64) 0);
+        this.openStack.add(Int64.of(nid));
+        return nid;
+    }
+
+    /** A list item under the open list. */
+    public int64 listItem(String text) {
+        int64 par = this.top();
+        if (this.kind.get((int32) par).value() != 4) {
+            throw heap DocsException("DocBuilder: listItem outside a list");
+        }
+        int64 nid = this.addNode((int64) 5, par, null, (int64) 0);
+        this.appendText(text);
+        this.patchEnd(nid);
+        return nid;
+    }
+
+    /** Close the open list. */
+    public void endList() {
+        int64 nid = this.top();
+        if (this.kind.get((int32) nid).value() != 4) {
+            throw heap DocsException("DocBuilder: no open list");
+        }
+        this.patchEnd(nid);
+        Int64 popped = this.openStack.removeAt(this.openStack.count() - 1);
+        return;
+    }
+
+    /** A code block — atomic for chunking (§10.2). */
+    public int64 codeBlock(String code) {
+        int64 nid = this.addNode((int64) 7, this.top(), null, (int64) 0);
+        this.appendText(code);
+        this.patchEnd(nid);
+        return nid;
+    }
+
+    /**
+     * A structured table (§3.2): `headers` (cols) then `cells` row-major
+     * (rows × cols). The buffer receives a tab-joined flat text so the
+     * table has a range and provenance like any node.
+     */
+    public int64 table(String[] headers, String[] cells, int64 rows,
+                       int64 cols) {
+        if ((int64) headers.count() != cols
+            || (int64) cells.count() != rows * cols) {
+            throw heap DocsException("DocBuilder.table: headers/cells "
+                + "shape mismatch");
+        }
+        int64 nid = this.addNode((int64) 6, this.top(), null, (int64) 0);
+        int64 ord = (int64) this.tblRowsA.count();
+        this.tblIxA.set((int32) nid, Int64.of(ord));
+        this.tblRowsA.add(Int64.of(rows));
+        this.tblColsA.add(Int64.of(cols));
+        this.tblCellLoA.add(Int64.of((int64) this.tblCellsA.count()));
+        // Header row then body, flattened; buffer gets tab-joined lines.
+        String line = "";
+        int64 c = 0;
+        while (c < cols) {
+            String h = "" + headers[c];
+            this.tblCellsA.add(#h);
+            if (c > 0) { line = line + "\t"; }
+            line = line + headers[c];
+            c = c + 1;
+        }
+        this.appendText(line);
+        int64 r = 0;
+        while (r < rows) {
+            line = "";
+            c = 0;
+            while (c < cols) {
+                String v = "" + cells[r * cols + c];
+                this.tblCellsA.add(#v);
+                if (c > 0) { line = line + "\t"; }
+                line = line + cells[r * cols + c];
+                c = c + 1;
+            }
+            this.appendText(line);
+            r = r + 1;
+        }
+        this.patchEnd(nid);
+        return nid;
+    }
+
+    int64 element(int64 ek, String caption, String alt, String src,
+                  int64 refNid, int8[] bytes) {
+        int64 nid = this.addNode((int64) 8, this.top(), null, (int64) 0);
+        this.elemKindA.set((int32) nid, Int64.of(ek));
+        if (caption != null) {
+            String cp = "" + caption;
+            this.elemCapA.set((int32) nid, #cp);
+            this.appendText(caption);
+        }
+        if (alt != null) {
+            String al = "" + alt;
+            this.elemAltA.set((int32) nid, #al);
+        }
+        if (src != null) {
+            String sr = "" + src;
+            this.elemSrcA.set((int32) nid, #sr);
+        }
+        this.elemRefA.set((int32) nid, Int64.of(refNid));
+        this.elemByteLoA.set((int32) nid, Int64.of(this.bytesLen));
+        if (bytes != null) {
+            int64 nb = (int64) bytes.count();
+            while (this.bytesLen + nb > (int64) this.bytesBuf.count()) {
+                int8[] bigger = heap int8[(int64) this.bytesBuf.count() * 2];
+                int64 t = 0;
+                while (t < this.bytesLen) {
+                    bigger[t] = this.bytesBuf[t];
+                    t = t + 1;
+                }
+                this.bytesBuf #= bigger;
+            }
+            int64 t2 = 0;
+            while (t2 < nb) {
+                this.bytesBuf[this.bytesLen + t2] = bytes[t2];
+                t2 = t2 + 1;
+            }
+            this.bytesLen = this.bytesLen + nb;
+        }
+        this.elemByteHiA.set((int32) nid, Int64.of(this.bytesLen));
+        this.patchEnd(nid);
+        return nid;
+    }
+
+    /** An image element (§3.1). */
+    public int64 image(String caption, String alt, int8[] bytes) {
+        return this.element((int64) 0, caption, alt, null, (int64) -1,
+                            bytes);
+    }
+
+    /** A chart/figure element (§3.3). */
+    public int64 chart(String caption) {
+        return this.element((int64) 1, caption, null, null, (int64) -1,
+                            null);
+    }
+
+    /** An equation element retaining its source form (§3.4). */
+    public int64 equation(String sourceForm, String caption) {
+        return this.element((int64) 2, caption, null, sourceForm,
+                            (int64) -1, null);
+    }
+
+    /** A footnote linked to its reference site (§3.5). */
+    public int64 footnote(String text, int64 refNid) {
+        int64 nid = this.element((int64) 3, null, null, null, refNid,
+                                 null);
+        this.appendText(text);
+        this.patchEnd(nid);
+        return nid;
+    }
+
+    /** An uninterpreted element — presence still recorded (§3.6). */
+    public int64 unknownElement() {
+        return this.element((int64) 4, null, null, null, (int64) -1,
+                            null);
+    }
+
+    /** A page boundary at the current offset (§2.2). */
+    public void pageBreak() {
+        this.pageful = true;
+        this.pageBreaksA.add(Int64.of(this.offset));
+        return;
+    }
+
+    /** Declare the format pageful even before the first break. */
+    public void setPageful() {
+        this.pageful = true;
+        return;
+    }
+
+    /** Document title metadata (§6.1). */
+    public void setMetaTitle(String t) {
+        this.metaTitle = "" + t;
+        return;
+    }
+
+    /** Seal the arena into a {@link Doc}. */
+    public #Doc build() {
+        if (this.built) {
+            throw heap DocsException("DocBuilder: build() called twice");
+        }
+        this.built = true;
+        while (this.openStack.count() > 1) {
+            int64 nid = this.top();
+            this.patchEnd(nid);
+            Int64 popped = this.openStack.removeAt(
+                this.openStack.count() - 1);
+        }
+        this.patchEnd((int64) 0);
+
+        // Concatenate the buffer.
+        String buf = "";
+        int32 t = 0;
+        while (t < this.parts.count()) {
+            buf = buf + this.parts.get(t);
+            t = t + 1;
+        }
+        // FNV-1a 64 over the bytes.
+        uint64 h = (uint64) 14695981039346656037;
+        int64 n = buf.count();
+        int64 b = 0;
+        while (b < n) {
+            int64 byteV = (int64) buf.charAt((int32) b);
+            if (byteV < 0) { byteV = byteV + 256; }
+            h = h ^ (uint64) byteV;
+            h = h * (uint64) 1099511628211;
+            b = b + 1;
+        }
+        String hex = DocBuilder.hex64(h);
+
+        int64 nn = (int64) this.kind.count();
+        int32[] kk = heap int32[nn];
+        int64[] pp = heap int64[nn];
+        int64[] ss = heap int64[nn];
+        int64[] ee = heap int64[nn];
+        String[] tt = heap String[nn];
+        int32[] ll = heap int32[nn];
+        int32[] ek = heap int32[nn];
+        String[] ec = heap String[nn];
+        String[] ea = heap String[nn];
+        String[] es = heap String[nn];
+        int64[] er = heap int64[nn];
+        int64[] blo = heap int64[nn];
+        int64[] bhi = heap int64[nn];
+        int64[] tix = heap int64[nn];
+        int64 i = 0;
+        while (i < nn) {
+            kk[i] = (int32) this.kind.get((int32) i).value();
+            pp[i] = this.parent.get((int32) i).value();
+            ss[i] = this.startA.get((int32) i).value();
+            ee[i] = this.endA.get((int32) i).value();
+            String tv = this.titleA.get((int32) i);
+            if (tv != null) { tt[i] = "" + tv; }
+            ll[i] = (int32) this.levelA.get((int32) i).value();
+            ek[i] = (int32) this.elemKindA.get((int32) i).value();
+            String cv = this.elemCapA.get((int32) i);
+            if (cv != null) { ec[i] = "" + cv; }
+            String av = this.elemAltA.get((int32) i);
+            if (av != null) { ea[i] = "" + av; }
+            String sv = this.elemSrcA.get((int32) i);
+            if (sv != null) { es[i] = "" + sv; }
+            er[i] = this.elemRefA.get((int32) i).value();
+            blo[i] = this.elemByteLoA.get((int32) i).value();
+            bhi[i] = this.elemByteHiA.get((int32) i).value();
+            tix[i] = this.tblIxA.get((int32) i).value();
+            i = i + 1;
+        }
+        int64 nt = (int64) this.tblRowsA.count();
+        int64[] trw = heap int64[nt];
+        int64[] tcl = heap int64[nt];
+        int64[] tlo = heap int64[nt];
+        i = 0;
+        while (i < nt) {
+            trw[i] = this.tblRowsA.get((int32) i).value();
+            tcl[i] = this.tblColsA.get((int32) i).value();
+            tlo[i] = this.tblCellLoA.get((int32) i).value();
+            i = i + 1;
+        }
+        int64 nc = (int64) this.tblCellsA.count();
+        String[] tcs = heap String[nc];
+        i = 0;
+        while (i < nc) {
+            tcs[i] = "" + this.tblCellsA.get((int32) i);
+            i = i + 1;
+        }
+        int64 npb = (int64) this.pageBreaksA.count();
+        int64[] pb = heap int64[npb];
+        i = 0;
+        while (i < npb) {
+            pb[i] = this.pageBreaksA.get((int32) i).value();
+            i = i + 1;
+        }
+        int8[] bb = heap int8[this.bytesLen];
+        i = 0;
+        while (i < this.bytesLen) { bb[i] = this.bytesBuf[i]; i = i + 1; }
+
+        String src = "" + this.sourceId;
+        String mt = null;
+        if (this.metaTitle != null) { mt = "" + this.metaTitle; }
+        Doc d = heap Doc(#buf, #hex, #src, #kk, #pp, #ss, #ee, #tt, #ll,
+            #ek, #ec, #ea, #es, #er, #bb, #blo, #bhi,
+            #tix, #trw, #tcl, #tcs, #tlo, #pb, this.pageful,
+            #mt, null, null);
+        return #d;
+    }
+
+    static #String hex64(uint64 v) {
+        String out = "";
+        int64 shift = 60;
+        while (shift >= 0) {
+            int64 nib = (int64) ((v >> (uint64) shift) & (uint64) 15);
+            if (nib < 10) { out = out + nib; }
+            else if (nib == 10) { out = out + "a"; }
+            else if (nib == 11) { out = out + "b"; }
+            else if (nib == 12) { out = out + "c"; }
+            else if (nib == 13) { out = out + "d"; }
+            else if (nib == 14) { out = out + "e"; }
+            else { out = out + "f"; }
+            shift = shift - 4;
+        }
+        return #out;
+    }
+}
