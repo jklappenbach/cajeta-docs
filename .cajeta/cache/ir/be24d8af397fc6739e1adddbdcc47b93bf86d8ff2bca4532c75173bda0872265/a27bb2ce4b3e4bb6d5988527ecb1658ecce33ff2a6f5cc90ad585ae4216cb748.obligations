@@ -1,0 +1,6 @@
+cajeta.codec.json.JsonValue::ARRAY
+cajeta.codec.json.JsonValue::BOOLEAN
+cajeta.codec.json.JsonValue::NULL
+cajeta.codec.json.JsonValue::OBJECT
+cajeta.codec.json.JsonValue::STRING
+cajeta.collection.ArrayList<cajeta.lang.String>

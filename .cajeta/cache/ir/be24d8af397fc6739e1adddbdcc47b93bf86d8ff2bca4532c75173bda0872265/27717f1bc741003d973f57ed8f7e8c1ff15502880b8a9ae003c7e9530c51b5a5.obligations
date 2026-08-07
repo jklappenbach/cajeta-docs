@@ -1,0 +1,3 @@
+cajeta.nucleo.column.Column<?>
+cajeta.nucleo.column.Column<?>::of(float64[])<float64>
+cajeta.nucleo.column.Column<float64>

@@ -1,0 +1,4 @@
+cajeta.collection.ArrayList<cajeta.lang.Float64>
+cajeta.collection.ArrayList<cajeta.lang.Int64>
+cajeta.collection.ArrayList<cajeta.lang.String>
+cajeta.collection.HashMap<cajeta.lang.String,cajeta.lang.Int64>
