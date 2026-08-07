@@ -36,3 +36,14 @@ selects a granularity from it, rather than re-parsing:
 ./run-tour.sh     # self-checking tour
 cajeta build      # emit build/archive/dev.cajeta.docs-<version>.cja
 ```
+
+## Deferrals (recorded, not omissions)
+
+- **Source-code, OOXML, and PDF readers** ship in a later release:
+  OOXML awaits cajeta-codec's XML parser, PDF awaits `dev.cajeta.font`
+  (spec §12.1's full-breadth resolution stands; the prerequisites are
+  simply not built yet). The reader front door names both precisely.
+- **Stemming** (spec §12.5) — revisited when cajeta-rag's retrieval
+  measurements say whether it earns its complexity.
+- **A trained sentence segmenter** (spec §12.6) — the rule-based
+  `Segmenter` is the seam; swap the class, keep the ranges contract.
