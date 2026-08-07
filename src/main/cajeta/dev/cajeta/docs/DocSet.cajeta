@@ -1,0 +1,67 @@
+package dev.cajeta.docs;
+
+import cajeta.collection.ArrayList;
+import cajeta.collection.HashMap;
+import cajeta.lang.Int64;
+import cajeta.lang.String;
+
+/**
+ * A corpus container with document lifecycle (spec §6.3–§6.4):
+ * {@link #register} keys documents by source id; re-registering the
+ * same source assigns the next version and RETIRES the prior document
+ * — its nodes answer {@link Doc#isRetired} true — without touching any
+ * other document. Content hashes deduplicate: registering an unchanged
+ * document is a no-op that reports itself.
+ */
+public final class DocSet {
+
+    ArrayList<Doc> docs;
+    HashMap<String, Int64> latest;   // sourceId → index into docs
+
+    public DocSet() {
+        this.docs = heap ArrayList<Doc>();
+        this.latest = heap HashMap<String, Int64>();
+        return;
+    }
+
+    /**
+     * Register `d` under its source id. Returns the assigned version:
+     * 1 for a new source, previous+1 on re-ingest (the old version is
+     * retired), or the EXISTING version unchanged when the content hash
+     * is identical (dedupe, §6.3).
+     */
+    public int64 register(#Doc d) {
+        String key = d.source();
+        Int64 prior = this.latest.get(key);
+        if (prior != null) {
+            Doc old = this.docs.get((int32) prior.value());
+            if (old.contentHash().equals(d.contentHash())) {
+                // Unchanged — dedupe; the new parse is discarded.
+                return old.docVersion();
+            }
+            old.retire();
+            d.setVersion(old.docVersion() + 1);
+        } else {
+            d.setVersion((int64) 1);
+        }
+        String key2 = d.source();
+        int64 ver = d.docVersion();
+        int64 ix = (int64) this.docs.count();
+        this.docs.add(#d);
+        this.latest.put(#key2, Int64.of(ix));
+        return ver;
+    }
+
+    /** The ACTIVE (latest) document for a source, or null. */
+    public Doc active(String sourceId) {
+        Int64 ix = this.latest.get(sourceId);
+        if (ix == null) { return null; }
+        return this.docs.get((int32) ix.value());
+    }
+
+    /** Total registered documents, retired versions included. */
+    public int64 count() { return (int64) this.docs.count(); }
+
+    /** The `i`-th registered document (registration order). */
+    public Doc docAt(int64 i) { return this.docs.get((int32) i); }
+}

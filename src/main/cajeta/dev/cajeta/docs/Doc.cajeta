@@ -1,0 +1,610 @@
+package dev.cajeta.docs;
+
+import cajeta.collection.ArrayList;
+import cajeta.lang.String;
+import cajeta.nucleo.column.Column;
+import cajeta.nucleo.column.DynCol;
+import cajeta.nucleo.column.StringColumn;
+import cajeta.nucleo.frame.DynFrame;
+
+/**
+ * A parsed document (spec §2): the CANONICAL TEXT buffer plus a node
+ * arena — the logical tree (document → sections → paragraphs / lists /
+ * tables / code blocks / elements) and, orthogonally, the PHYSICAL view
+ * (pages and lines as offset ranges over the same buffer). A paragraph
+ * spanning a page break is ONE paragraph whose layout view lists both
+ * pages (§2.2, §13.3) — physical layout is never a parent in the
+ * logical tree, because either view would have to lie.
+ *
+ * One parse serves every granularity (§2.4): the arena is built once
+ * ({@link #parseCount} stays 1) and every query — {@link #nodesOfKind},
+ * {@link #pagesOf}, {@link #sectionPath}, {@link #provenance} — is a
+ * scan or walk over it, never a re-parse.
+ *
+ * Text policy (§2.7): {@link #text} returns the node's exact slice of
+ * the canonical buffer. Block boundaries insert exactly one `\n` into
+ * the buffer; intra-paragraph whitespace is the reader's (readers
+ * collapse runs to single spaces and join hyphenated line breaks);
+ * descendants are always included (a section's text spans its children).
+ *
+ * Formats without a physical level report it ABSENT (§2.6):
+ * {@link #hasPages} is false for plain text and {@link #pagesOf} is
+ * empty — never a fabricated single page.
+ */
+public final class Doc {
+
+    String textBuf;
+    String hash;
+    String sourceId;
+    int64 version;
+    boolean retiredFlag;
+    int64 parses;
+
+    // Arena (document order = arena order).
+    int32[] kind;
+    int64[] parent;      // -1 for the root
+    int64[] start;       // char range [start, end)
+    int64[] end;
+    String[] title;      // section titles; null elsewhere
+    int32[] level;       // section nesting level (1-based); 0 elsewhere
+
+    // Element payloads (parallel, -1 / null when not an element).
+    int32[] elemKind;
+    String[] elemCaption;
+    String[] elemAlt;
+    String[] elemSource;  // equation source form
+    int64[] elemRef;      // footnote reference-site node, -1 otherwise
+    int8[] elemBytes;     // flattened bytes
+    int64[] elemByteLo;
+    int64[] elemByteHi;
+
+    // Table payloads (indexed by table ordinal; nid → ordinal in tblIx).
+    int64[] tblIx;
+    int64[] tblRows;
+    int64[] tblCols;
+    String[] tblCells;    // flattened per table: header row then body
+    int64[] tblCellLo;    // table ordinal → offset into tblCells
+
+    // Physical view.
+    int64[] pageBreaks;   // offsets where a new page starts (asc)
+    boolean pageful;
+
+    // Metadata (§6.1, where the format provides it).
+    String metaTitle;
+    String metaAuthor;
+    String metaLanguage;
+
+    Doc(#String textBuf, #String hash, #String sourceId,
+        #int32[] kind, #int64[] parent, #int64[] start, #int64[] end,
+        #String[] title, #int32[] level,
+        #int32[] elemKind, #String[] elemCaption, #String[] elemAlt,
+        #String[] elemSource, #int64[] elemRef, #int8[] elemBytes,
+        #int64[] elemByteLo, #int64[] elemByteHi,
+        #int64[] tblIx, #int64[] tblRows, #int64[] tblCols,
+        #String[] tblCells, #int64[] tblCellLo,
+        #int64[] pageBreaks, boolean pageful,
+        #String metaTitle, #String metaAuthor, #String metaLanguage) {
+        this.textBuf #= textBuf;
+        this.hash #= hash;
+        this.sourceId #= sourceId;
+        this.version = 1;
+        this.retiredFlag = false;
+        this.parses = 1;
+        this.kind #= kind;
+        this.parent #= parent;
+        this.start #= start;
+        this.end #= end;
+        this.title #= title;
+        this.level #= level;
+        this.elemKind #= elemKind;
+        this.elemCaption #= elemCaption;
+        this.elemAlt #= elemAlt;
+        this.elemSource #= elemSource;
+        this.elemRef #= elemRef;
+        this.elemBytes #= elemBytes;
+        this.elemByteLo #= elemByteLo;
+        this.elemByteHi #= elemByteHi;
+        this.tblIx #= tblIx;
+        this.tblRows #= tblRows;
+        this.tblCols #= tblCols;
+        this.tblCells #= tblCells;
+        this.tblCellLo #= tblCellLo;
+        this.pageBreaks #= pageBreaks;
+        this.pageful = pageful;
+        this.metaTitle #= metaTitle;
+        this.metaAuthor #= metaAuthor;
+        this.metaLanguage #= metaLanguage;
+        return;
+    }
+
+    // ---- identity and lifecycle (§6.3–§6.4) --------------------------
+
+    /** FNV-1a 64 content hash, hex — dedupe key (§6.3). */
+    public #String contentHash() {
+        String out = "" + this.hash;
+        return #out;
+    }
+
+    /** The caller's source id. */
+    public #String source() {
+        String out = "" + this.sourceId;
+        return #out;
+    }
+
+    /** Ingest version (§6.4); assigned by {@link DocSet}. */
+    public int64 docVersion() { return this.version; }
+
+    /** True when a newer version of the same source retired this doc. */
+    public boolean isRetired() { return this.retiredFlag; }
+
+    /** How many times the source was parsed to serve queries: always 1. */
+    public int64 parseCount() { return this.parses; }
+
+    // ---- the logical tree (§2.1, §2.3, §2.4) -------------------------
+
+    /** Number of nodes in the arena. */
+    public int64 nodeCount() { return (int64) this.kind.count(); }
+
+    /** The kind of node `nid` (see {@link NodeKind}). */
+    public int32 kindOf(int64 nid) {
+        this.checkNid(nid);
+        return this.kind[nid];
+    }
+
+    /** The parent node, or −1 at the root (§2.3). */
+    public int64 parentOf(int64 nid) {
+        this.checkNid(nid);
+        return this.parent[nid];
+    }
+
+    /** The direct children of `nid`, in document order (§2.3). */
+    public #int64[] childrenOf(int64 nid) {
+        this.checkNid(nid);
+        int64 n = this.nodeCount();
+        int64 c = 0;
+        int64 t = 0;
+        while (t < n) {
+            if (this.parent[t] == nid) { c = c + 1; }
+            t = t + 1;
+        }
+        int64[] out = heap int64[c];
+        c = 0;
+        t = 0;
+        while (t < n) {
+            if (this.parent[t] == nid) { out[c] = t; c = c + 1; }
+            t = t + 1;
+        }
+        return #out;
+    }
+
+    /**
+     * Every node of `kind`, in document order, WITHOUT re-parsing
+     * (§2.4) — an arena scan; {@link #parseCount} does not move.
+     */
+    public #int64[] nodesOfKind(int32 k) {
+        int64 n = this.nodeCount();
+        int64 c = 0;
+        int64 t = 0;
+        while (t < n) {
+            if (this.kind[t] == k) { c = c + 1; }
+            t = t + 1;
+        }
+        int64[] out = heap int64[c];
+        c = 0;
+        t = 0;
+        while (t < n) {
+            if (this.kind[t] == k) { out[c] = t; c = c + 1; }
+            t = t + 1;
+        }
+        return #out;
+    }
+
+    /** The section title (sections only; null-safe empty otherwise). */
+    public #String titleOf(int64 nid) {
+        this.checkNid(nid);
+        if (this.title[nid] == null) {
+            String e = "";
+            return #e;
+        }
+        String out = "" + this.title[nid];
+        return #out;
+    }
+
+    // ---- text (§2.7) -------------------------------------------------
+
+    /** The node's exact slice of the canonical buffer (policy above). */
+    public #String text(int64 nid) {
+        this.checkNid(nid);
+        return this.textBuf.substring((int32) this.start[nid],
+                                      (int32) this.end[nid]);
+    }
+
+    /** The whole canonical text. */
+    public #String fullText() {
+        String out = "" + this.textBuf;
+        return #out;
+    }
+
+    /** Character range start of `nid`. */
+    public int64 charStart(int64 nid) {
+        this.checkNid(nid);
+        return this.start[nid];
+    }
+
+    /** Exclusive character range end of `nid`. */
+    public int64 charEnd(int64 nid) {
+        this.checkNid(nid);
+        return this.end[nid];
+    }
+
+    // ---- the physical view (§2.2, §2.6, §5) --------------------------
+
+    /** True when the format expressed pages; false = ABSENT (§2.6). */
+    public boolean hasPages() { return this.pageful; }
+
+    /** Page count (0 when pageless). */
+    public int64 pageCount() {
+        if (!this.pageful) { return 0; }
+        return (int64) this.pageBreaks.count() + 1;
+    }
+
+    /**
+     * The 1-based pages `nid`'s range touches (§2.2, §13.3): a node
+     * spanning a page break lists BOTH pages. Empty when pageless.
+     */
+    public #int64[] pagesOf(int64 nid) {
+        this.checkNid(nid);
+        if (!this.pageful) {
+            int64[] none = heap int64[0];
+            return #none;
+        }
+        int64 first = this.pageAt(this.start[nid]);
+        int64 lastOff = this.end[nid];
+        if (lastOff > this.start[nid]) { lastOff = lastOff - 1; }
+        int64 last = this.pageAt(lastOff);
+        int64[] out = heap int64[last - first + 1];
+        int64 p = first;
+        while (p <= last) { out[p - first] = p; p = p + 1; }
+        return #out;
+    }
+
+    int64 pageAt(int64 off) {
+        int64 nb = (int64) this.pageBreaks.count();
+        int64 p = 1;
+        int64 b = 0;
+        while (b < nb) {
+            if (off >= this.pageBreaks[b]) { p = p + 1; }
+            b = b + 1;
+        }
+        return p;
+    }
+
+    /** Newline-derived physical lines over the buffer: [start, end). */
+    public #int64[] lineStarts() {
+        int64 n = this.textBuf.count();
+        int64 c = 1;
+        int64 t = 0;
+        while (t < n) {
+            if (this.textBuf.charAt((int32) t) == 10) { c = c + 1; }
+            t = t + 1;
+        }
+        int64[] out = heap int64[c];
+        out[0] = 0;
+        c = 1;
+        t = 0;
+        while (t < n) {
+            if (this.textBuf.charAt((int32) t) == 10) {
+                out[c] = t + 1;
+                c = c + 1;
+            }
+            t = t + 1;
+        }
+        return #out;
+    }
+
+    // ---- provenance (§6.2, §13.1) ------------------------------------
+
+    /** The section path of `nid`, outermost first, `" > "`-joined. */
+    public #String sectionPath(int64 nid) {
+        this.checkNid(nid);
+        // Collect ancestor section titles by walking up.
+        String out = "";
+        int64 cur = nid;
+        while (cur >= 0) {
+            if (this.kind[cur] == 1 && this.title[cur] != null) {
+                if (out.equals("")) { out = "" + this.title[cur]; }
+                else { out = this.title[cur] + " > " + out; }
+            }
+            cur = this.parent[cur];
+        }
+        return #out;
+    }
+
+    /** Full provenance for ANY node (§13.1). */
+    public #Provenance provenance(int64 nid) {
+        this.checkNid(nid);
+        Provenance p = heap Provenance(this.contentHash(), this.version,
+            this.source(), this.start[nid], this.end[nid],
+            this.pagesOf(nid), this.sectionPath(nid));
+        return #p;
+    }
+
+    // ---- elements (§3) -----------------------------------------------
+
+    /** The element sub-kind (elements only; see {@link NodeKind}). */
+    public int32 elementKind(int64 nid) {
+        this.checkElement(nid);
+        return this.elemKind[nid];
+    }
+
+    /** The element's caption ("" when absent). */
+    public #String elementCaption(int64 nid) {
+        this.checkElement(nid);
+        if (this.elemCaption[nid] == null) {
+            String e = "";
+            return #e;
+        }
+        String out = "" + this.elemCaption[nid];
+        return #out;
+    }
+
+    /** The element's alt text ("" when absent) (§3.1). */
+    public #String elementAlt(int64 nid) {
+        this.checkElement(nid);
+        if (this.elemAlt[nid] == null) {
+            String e = "";
+            return #e;
+        }
+        String out = "" + this.elemAlt[nid];
+        return #out;
+    }
+
+    /** The equation's source form (LaTeX/MathML/OMML) (§3.4). */
+    public #String elementSource(int64 nid) {
+        this.checkElement(nid);
+        if (this.elemSource[nid] == null) {
+            String e = "";
+            return #e;
+        }
+        String out = "" + this.elemSource[nid];
+        return #out;
+    }
+
+    /** The footnote's reference-site node, −1 otherwise (§3.5). */
+    public int64 elementRefSite(int64 nid) {
+        this.checkElement(nid);
+        return this.elemRef[nid];
+    }
+
+    /** The element's raw bytes (images) — empty when none (§3.1). */
+    public #int8[] elementBytes(int64 nid) {
+        this.checkElement(nid);
+        int64 lo = this.elemByteLo[nid];
+        int64 hi = this.elemByteHi[nid];
+        int8[] out = heap int8[hi - lo];
+        int64 t = lo;
+        while (t < hi) { out[t - lo] = this.elemBytes[t]; t = t + 1; }
+        return #out;
+    }
+
+    // ---- tables (§3.2, §13.7) ----------------------------------------
+
+    /** Body row count of table `nid` (headers not counted). */
+    public int64 tableRows(int64 nid) {
+        return this.tblRows[this.tableOrdinal(nid)];
+    }
+
+    /** Column count of table `nid`. */
+    public int64 tableCols(int64 nid) {
+        return this.tblCols[this.tableOrdinal(nid)];
+    }
+
+    /** Header text of column `c`. */
+    public #String tableHeader(int64 nid, int64 c) {
+        int64 ord = this.tableOrdinal(nid);
+        this.checkCell(ord, (int64) 0, c);
+        String out = "" + this.tblCells[this.tblCellLo[ord] + c];
+        return #out;
+    }
+
+    /** Body cell text at `(r, c)` (0-based, headers excluded). */
+    public #String tableCell(int64 nid, int64 r, int64 c) {
+        int64 ord = this.tableOrdinal(nid);
+        this.checkCell(ord, r + 1, c);
+        int64 cols = this.tblCols[ord];
+        String out = "" + this.tblCells[this.tblCellLo[ord]
+            + (r + 1) * cols + c];
+        return #out;
+    }
+
+    /**
+     * The table as a `nucleo.frame.DynFrame` (§3.2, §13.7): headers
+     * become column names; a column whose EVERY body cell parses
+     * strictly as a number becomes float64, otherwise it is a string
+     * column. Values round-trip exactly.
+     */
+    public #DynFrame tableToFrame(int64 nid) {
+        int64 ord = this.tableOrdinal(nid);
+        int64 rows = this.tblRows[ord];
+        int64 cols = this.tblCols[ord];
+        int64 lo = this.tblCellLo[ord];
+        String[] names = heap String[cols];
+        int32[] tags = heap int32[cols];
+        boolean[] nulls = heap boolean[cols];
+        DynCol[] dcols =
+            heap DynCol[cols];
+        int64 c = 0;
+        while (c < cols) {
+            names[c] = "" + this.tblCells[lo + c];
+            nulls[c] = false;
+            boolean numeric = true;
+            int64 r = 0;
+            while (r < rows) {
+                if (!Doc.looksNumeric(this.tblCells[lo + (r + 1) * cols + c])) {
+                    numeric = false;
+                    r = rows;
+                } else {
+                    r = r + 1;
+                }
+            }
+            if (numeric) {
+                tags[c] = 10;
+                float64[] vals = heap float64[rows];
+                r = 0;
+                while (r < rows) {
+                    vals[r] = Doc.parseNumeric(
+                        this.tblCells[lo + (r + 1) * cols + c]);
+                    r = r + 1;
+                }
+                dcols[c] = DynCol.ofF64(
+                    Column.of<float64>(vals));
+            } else {
+                tags[c] = 11;
+                String[] vals = heap String[rows];
+                r = 0;
+                while (r < rows) {
+                    vals[r] = "" + this.tblCells[lo + (r + 1) * cols + c];
+                    r = r + 1;
+                }
+                dcols[c] = DynCol.ofStr(
+                    StringColumn.of(vals));
+            }
+            c = c + 1;
+        }
+        DynFrame f = heap DynFrame(
+            #names, #tags, #nulls, #dcols, (int32) cols, rows);
+        return #f;
+    }
+
+    /** Strict numeric shape: `[+-]?d+[.d*][e[+-]d+]`. */
+    static boolean looksNumeric(String s) {
+        int64 n = s.count();
+        if (n == 0) { return false; }
+        int64 i = 0;
+        int8 c0 = s.charAt((int32) 0);
+        if (c0 == 43 || c0 == 45) { i = 1; }
+        boolean sawDigit = false;
+        boolean sawDot = false;
+        boolean sawExp = false;
+        while (i < n) {
+            int8 ch = s.charAt((int32) i);
+            if (ch >= 48 && ch <= 57) { sawDigit = true; }
+            else if (ch == 46 && !sawDot && !sawExp) { sawDot = true; }
+            else if ((ch == 101 || ch == 69) && sawDigit && !sawExp) {
+                sawExp = true;
+                if (i + 1 < n) {
+                    int8 nx = s.charAt((int32) (i + 1));
+                    if (nx == 43 || nx == 45) { i = i + 1; }
+                }
+                if (i + 1 >= n) { return false; }
+            } else {
+                return false;
+            }
+            i = i + 1;
+        }
+        return sawDigit;
+    }
+
+    static float64 parseNumeric(String s) {
+        int64 n = s.count();
+        float64 sign = 1.0;
+        int64 i = 0;
+        int8 c0 = s.charAt((int32) 0);
+        if (c0 == 45) { sign = -1.0; i = 1; }
+        else if (c0 == 43) { i = 1; }
+        float64 v = 0.0;
+        while (i < n) {
+            int8 ch = s.charAt((int32) i);
+            if (ch >= 48 && ch <= 57) {
+                v = v * 10.0 + (float64) ((int64) ch - 48);
+                i = i + 1;
+            } else { break; }
+        }
+        if (i < n && s.charAt((int32) i) == 46) {
+            i = i + 1;
+            float64 scale = 0.1;
+            while (i < n) {
+                int8 ch = s.charAt((int32) i);
+                if (ch >= 48 && ch <= 57) {
+                    v = v + (float64) ((int64) ch - 48) * scale;
+                    scale = scale / 10.0;
+                    i = i + 1;
+                } else { break; }
+            }
+        }
+        if (i < n) {
+            int8 ch = s.charAt((int32) i);
+            if (ch == 101 || ch == 69) {
+                i = i + 1;
+                float64 esign = 1.0;
+                if (i < n) {
+                    int8 sc = s.charAt((int32) i);
+                    if (sc == 45) { esign = -1.0; i = i + 1; }
+                    else if (sc == 43) { i = i + 1; }
+                }
+                float64 ev = 0.0;
+                while (i < n) {
+                    int8 dc = s.charAt((int32) i);
+                    if (dc >= 48 && dc <= 57) {
+                        ev = ev * 10.0 + (float64) ((int64) dc - 48);
+                        i = i + 1;
+                    } else { break; }
+                }
+                v = v * Math.pow(10.0, esign * ev);
+            }
+        }
+        return sign * v;
+    }
+
+    int64 tableOrdinal(int64 nid) {
+        this.checkNid(nid);
+        if (this.kind[nid] != 6) {
+            throw heap DocsException("Doc: node " + nid
+                + " is not a table");
+        }
+        return this.tblIx[nid];
+    }
+
+    void checkCell(int64 ord, int64 rowWithHeader, int64 c) {
+        if (rowWithHeader < 0 || rowWithHeader > this.tblRows[ord]
+            || c < 0 || c >= this.tblCols[ord]) {
+            throw heap DocsException("Doc: table cell out of range");
+        }
+        return;
+    }
+
+    // ---- metadata (§6.1) ---------------------------------------------
+
+    /** Document title where the format provided one ("" otherwise). */
+    public #String metaTitleOf() {
+        if (this.metaTitle == null) {
+            String e = "";
+            return #e;
+        }
+        String out = "" + this.metaTitle;
+        return #out;
+    }
+
+    // ---- internals ---------------------------------------------------
+
+    void retire() { this.retiredFlag = true; return; }
+
+    void setVersion(int64 v) { this.version = v; return; }
+
+    void checkNid(int64 nid) {
+        if (nid < 0 || nid >= this.nodeCount()) {
+            throw heap DocsException("Doc: node id " + nid
+                + " out of range [0, " + this.nodeCount() + ")");
+        }
+        return;
+    }
+
+    void checkElement(int64 nid) {
+        this.checkNid(nid);
+        if (this.kind[nid] != 8) {
+            throw heap DocsException("Doc: node " + nid
+                + " is not an element");
+        }
+        return;
+    }
+}

@@ -1,0 +1,47 @@
+package dev.cajeta.docs;
+
+/**
+ * Where a node came from (spec §6.2, §13.1): document identity (content
+ * hash + version + source id), character range in the document's
+ * canonical text, the pages it touches (1-based; empty when the format
+ * has no pages, §2.6), and the section path. Every node at every
+ * granularity resolves one of these — without it a downstream answer
+ * cannot cite, and an uncitable answer is indistinguishable from a
+ * fabricated one.
+ */
+public final class Provenance {
+
+    /** FNV-1a 64 content hash of the document text, hex. */
+    public String docHash;
+
+    /** The document's ingest version (§6.4). */
+    public int64 version;
+
+    /** The caller-supplied source id (path, URL, …). */
+    public String sourceId;
+
+    /** Character range `[start, end)` in the canonical text. */
+    public int64 charStart;
+
+    /** Exclusive end of the range. */
+    public int64 charEnd;
+
+    /** 1-based page numbers the range touches; empty when pageless. */
+    public int64[] pages;
+
+    /** The section path, outermost first, `" > "`-joined. */
+    public String sectionPath;
+
+    Provenance(#String docHash, int64 version, #String sourceId,
+               int64 charStart, int64 charEnd, #int64[] pages,
+               #String sectionPath) {
+        this.docHash #= docHash;
+        this.version = version;
+        this.sourceId #= sourceId;
+        this.charStart = charStart;
+        this.charEnd = charEnd;
+        this.pages #= pages;
+        this.sectionPath #= sectionPath;
+        return;
+    }
+}
