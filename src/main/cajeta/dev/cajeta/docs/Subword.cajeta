@@ -1,0 +1,274 @@
+package dev.cajeta.docs;
+
+import cajeta.collection.ArrayList;
+import cajeta.collection.HashMap;
+import cajeta.lang.Int64;
+import cajeta.lang.String;
+import cajeta.lang.StringBuilder;
+
+/**
+ * Subword tokenization with CONSUMER-SUPPLIED vocabularies (spec §10.8,
+ * §12.4 resolved): WordPiece reproduces a published vocabulary's
+ * tokenization exactly — `##` continuation, `[UNK]`, greedy
+ * longest-match-first, BERT's basic pre-tokenization (lowercase,
+ * punctuation split) — pinned token-for-token against HuggingFace's
+ * tokenizer over the committed bert-base-uncased vocabulary (§13.9: a
+ * ONE-token disagreement is a defect, §10.9). BPE applies a supplied
+ * merges table in priority order.
+ *
+ * {@link #countTokens} walks the same algorithm WITHOUT materializing
+ * the token strings (§10.10) — model-input budgeting shouldn't
+ * allocate.
+ */
+public final class Subword {
+
+    boolean isWordpiece;
+    HashMap<String, Int64> vocab;
+    String[] mergeA;
+    String[] mergeB;
+
+    Subword(boolean wp, #HashMap<String, Int64> vocab,
+            #String[] mergeA, #String[] mergeB) {
+        this.isWordpiece = wp;
+        this.vocab #= vocab;
+        this.mergeA #= mergeA;
+        this.mergeB #= mergeB;
+        return;
+    }
+
+    /** A WordPiece tokenizer over a newline-separated vocabulary. */
+    public static #Subword wordpiece(String vocabText) {
+        HashMap<String, Int64> v = Subword.parseVocab(vocabText);
+        String[] e = heap String[0];
+        String[] e2 = heap String[0];
+        Subword s = heap Subword(true, #v, #e, #e2);
+        return #s;
+    }
+
+    /** A BPE tokenizer: vocabulary + `a b` merge lines in priority order. */
+    public static #Subword bpe(String vocabText, String mergesText) {
+        HashMap<String, Int64> v = Subword.parseVocab(vocabText);
+        ArrayList<String> la = heap ArrayList<String>();
+        ArrayList<String> lb = heap ArrayList<String>();
+        int64 n = mergesText.count();
+        int64 i = 0;
+        while (i < n) {
+            int64 eol = i;
+            while (eol < n && mergesText.charAt((int32) eol) != 10) {
+                eol = eol + 1;
+            }
+            if (eol > i) {
+                String line = mergesText.substring((int32) i, (int32) eol);
+                int64 sp = line.indexOf(" ");
+                if (sp > 0) {
+                    String a = line.substring((int32) 0, (int32) sp);
+                    String b = line.substring((int32) (sp + 1),
+                                              (int32) line.count());
+                    la.add(#a);
+                    lb.add(#b);
+                }
+            }
+            i = eol + 1;
+        }
+        int64 m = (int64) la.count();
+        String[] ma = heap String[m];
+        String[] mb = heap String[m];
+        int64 k = 0;
+        while (k < m) {
+            ma[k] = "" + la.get((int32) k);
+            mb[k] = "" + lb.get((int32) k);
+            k = k + 1;
+        }
+        Subword s = heap Subword(false, #v, #ma, #mb);
+        return #s;
+    }
+
+    static #HashMap<String, Int64> parseVocab(String text) {
+        HashMap<String, Int64> v = heap HashMap<String, Int64>();
+        int64 n = text.count();
+        int64 i = 0;
+        int64 ix = 0;
+        while (i < n) {
+            int64 eol = i;
+            while (eol < n && text.charAt((int32) eol) != 10) {
+                eol = eol + 1;
+            }
+            int64 hi = eol;
+            while (hi > i && text.charAt((int32) (hi - 1)) == 13) {
+                hi = hi - 1;
+            }
+            if (hi > i) {
+                String tok = text.substring((int32) i, (int32) hi);
+                v.put(#tok, Int64.of(ix));
+                ix = ix + 1;
+            }
+            i = eol + 1;
+        }
+        return #v;
+    }
+
+    /** Tokenize; §10.9: one token of disagreement with the reference
+     *  implementation over the same vocabulary is a DEFECT. */
+    public #String[] tokenize(String text) {
+        ArrayList<String> out = heap ArrayList<String>();
+        this.run(text, out);
+        int64 m = (int64) out.count();
+        String[] arr = heap String[m];
+        int64 i = 0;
+        while (i < m) { arr[i] = "" + out.get((int32) i); i = i + 1; }
+        return #arr;
+    }
+
+    /** Token COUNT without materializing the strings (§10.10). */
+    public int64 countTokens(String text) {
+        return this.run(text, null);
+    }
+
+    int64 run(String text, ArrayList<String> out) {
+        String low = text.toLowerCase();
+        int64 n = low.count();
+        int64 count = 0;
+        int64 i = 0;
+        while (i < n) {
+            int8 c = low.charAt((int32) i);
+            if (c == 32 || c == 9 || c == 10 || c == 13) {
+                i = i + 1;
+            } else if (Subword.isPunct(c)) {
+                // BERT basic: punctuation is its own word.
+                count = count + this.piece(low, i, i + 1, out);
+                i = i + 1;
+            } else {
+                int64 lo = i;
+                while (i < n && !Subword.isPunct(low.charAt((int32) i))
+                       && low.charAt((int32) i) != 32
+                       && low.charAt((int32) i) != 9
+                       && low.charAt((int32) i) != 10
+                       && low.charAt((int32) i) != 13) {
+                    i = i + 1;
+                }
+                count = count + this.piece(low, lo, i, out);
+            }
+        }
+        return count;
+    }
+
+    /** WordPiece/BPE one word `[lo, hi)`; returns tokens emitted. */
+    int64 piece(String low, int64 lo, int64 hi, ArrayList<String> out) {
+        if (this.isWordpiece) {
+            return this.wordpieceWord(low, lo, hi, out);
+        }
+        return this.bpeWord(low, lo, hi, out);
+    }
+
+    int64 wordpieceWord(String low, int64 lo, int64 hi,
+                        ArrayList<String> out) {
+        if (hi - lo > 100) {
+            if (out != null) {
+                String u = "[UNK]";
+                out.add(#u);
+            }
+            return 1;
+        }
+        int64 emitted = 0;
+        int64 start = lo;
+        while (start < hi) {
+            int64 end = hi;
+            int64 found = -1;
+            while (end > start) {
+                String sub = low.substring((int32) start, (int32) end);
+                String probe = sub;
+                if (start > lo) { probe = "##" + sub; }
+                if (this.vocab.get(probe) != null) {
+                    found = end;
+                    if (out != null) {
+                        String tk = "" + probe;
+                        out.add(#tk);
+                    }
+                    emitted = emitted + 1;
+                    end = start;                        // break
+                } else {
+                    end = end - 1;
+                }
+            }
+            if (found < 0) {
+                // No piece matched: the WHOLE word is [UNK]; undo any
+                // partial pieces (BERT semantics).
+                if (out != null) {
+                    while (emitted > 0) {
+                        String dropped = out.removeAt(out.count() - 1);
+                        emitted = emitted - 1;
+                    }
+                    String u = "[UNK]";
+                    out.add(#u);
+                } else {
+                    emitted = 0;
+                }
+                return 1;
+            }
+            start = found;
+        }
+        return emitted;
+    }
+
+    int64 bpeWord(String low, int64 lo, int64 hi, ArrayList<String> out) {
+        // Symbols start as single characters.
+        ArrayList<String> syms = heap ArrayList<String>();
+        int64 i = lo;
+        while (i < hi) {
+            String one = low.substring((int32) i, (int32) (i + 1));
+            syms.add(#one);
+            i = i + 1;
+        }
+        // Apply merges in priority order until none applies.
+        boolean changed = true;
+        while (changed && syms.count() > 1) {
+            changed = false;
+            // The highest-priority applicable merge.
+            int64 bestRule = -1;
+            int32 bestPos = -1;
+            int64 r = 0;
+            while (r < (int64) this.mergeA.count()) {
+                int32 p = 0;
+                while (p + 1 < syms.count()) {
+                    if (syms.get(p).equals(this.mergeA[r])
+                        && syms.get(p + 1).equals(this.mergeB[r])) {
+                        bestRule = r;
+                        bestPos = p;
+                        p = syms.count();
+                        r = (int64) this.mergeA.count();
+                    } else {
+                        p = p + 1;
+                    }
+                }
+                if (bestRule < 0) { r = r + 1; }
+            }
+            if (bestRule >= 0) {
+                String merged = this.mergeA[bestRule]
+                    + this.mergeB[bestRule];
+                String dropped1 = syms.removeAt(bestPos);
+                String dropped2 = syms.removeAt(bestPos);
+                syms.insert(bestPos, #merged);
+                changed = true;
+            }
+        }
+        int64 emitted = 0;
+        int32 s = 0;
+        while (s < syms.count()) {
+            if (out != null) {
+                String tk = "" + syms.get(s);
+                out.add(#tk);
+            }
+            emitted = emitted + 1;
+            s = s + 1;
+        }
+        return emitted;
+    }
+
+    static boolean isPunct(int8 c) {
+        if (c >= 33 && c <= 47) { return true; }
+        if (c >= 58 && c <= 64) { return true; }
+        if (c >= 91 && c <= 96) { return true; }
+        if (c >= 123 && c <= 126) { return true; }
+        return false;
+    }
+}

@@ -1,0 +1,298 @@
+package dev.cajeta.docs.selftest;
+
+import dev.cajeta.unit.Assert;
+import cajeta.lang.String;
+import cajeta.math.Tensor;
+import cajeta.nucleo.sparse.CsrMatrix;
+import dev.cajeta.docs.Chunker;
+import dev.cajeta.docs.ChunkList;
+import dev.cajeta.docs.Doc;
+import dev.cajeta.docs.DocBuilder;
+import dev.cajeta.docs.Vectorizer;
+
+/**
+ * cajeta-docs U7 — TF-IDF with EVERY sklearn variant switch exercised
+ * (7.1.1, §13.10), the fixed vocabulary (§9.2), persistence (§9.7),
+ * and chunking that never splits a table or code block, with overlap,
+ * provenance, heading paths, and the explicit oversize policy
+ * (7.1.3–7.1.8, §13.8).
+ */
+public class VectorChunkTest {
+
+    public VectorChunkTest() { return; }
+
+    static #String[] corpus() {
+        String all = Fx.readText("docs_corpus.txt");
+        // Split lines.
+        int64 n = all.count();
+        int64 lines = 0;
+        int64 i = 0;
+        while (i < n) {
+            if (all.charAt((int32) i) == 10) { lines = lines + 1; }
+            i = i + 1;
+        }
+        String[] out = heap String[lines];
+        int64 li = 0;
+        i = 0;
+        while (i < n) {
+            int64 eol = i;
+            while (eol < n && all.charAt((int32) eol) != 10) {
+                eol = eol + 1;
+            }
+            out[li] = all.substring((int32) i, (int32) eol);
+            li = li + 1;
+            i = eol + 1;
+        }
+        return #out;
+    }
+
+    static void assertMatrix(CsrMatrix m, String fixture, int64 rows,
+                             int64 cols) {
+        Tensor<float64> want = Fx.load(fixture);
+        Tensor<float64> got = m.toDense();
+        int64 t = 0;
+        while (t < rows * cols) {
+            Assert.isTrue(Fx.close(got.flatGet(t), want.flatGet(t),
+                0.0000000001));
+            t = t + 1;
+        }
+        return;
+    }
+
+    // 7.1.1 + §13.10 — counts and all six TF-IDF variants match sklearn
+    // 1.9.0 exactly; the vocabulary is sklearn's sorted one.
+    @Test
+    public void tfidfVariantsMatchSklearn() {
+        String[] docs = VectorChunkTest.corpus();
+        Vectorizer v = heap Vectorizer();
+        v.fit(docs);
+        // The vocabulary matches the oracle term-for-term.
+        String vocabText = Fx.readText("docs_vocab.txt");
+        int64 vi = 0;
+        int64 pos = 0;
+        while (pos < vocabText.count()) {
+            int64 eol = pos;
+            while (eol < vocabText.count()
+                   && vocabText.charAt((int32) eol) != 10) {
+                eol = eol + 1;
+            }
+            String term = vocabText.substring((int32) pos, (int32) eol);
+            Assert.isTrue(v.termAt(vi).equals(term));
+            Assert.equals(v.indexOf(term), vi);
+            vi = vi + 1;
+            pos = eol + 1;
+        }
+        int64 V = v.vocabSize();
+        Assert.equals(V, vi);
+
+        VectorChunkTest.assertMatrix(v.counts(docs), "docs_counts",
+            (int64) 6, V);
+        VectorChunkTest.assertMatrix(v.transform(docs),
+            "docs_tfidf_default", (int64) 6, V);
+
+        Vectorizer v2 = heap Vectorizer();
+        v2.setSmoothIdf(false);
+        v2.fit(docs);
+        VectorChunkTest.assertMatrix(v2.transform(docs),
+            "docs_tfidf_nosmooth", (int64) 6, V);
+
+        Vectorizer v3 = heap Vectorizer();
+        v3.setSublinearTf(true);
+        v3.fit(docs);
+        VectorChunkTest.assertMatrix(v3.transform(docs),
+            "docs_tfidf_sublinear", (int64) 6, V);
+
+        Vectorizer v4 = heap Vectorizer();
+        v4.setNorm("none");
+        v4.fit(docs);
+        VectorChunkTest.assertMatrix(v4.transform(docs),
+            "docs_tfidf_nonorm", (int64) 6, V);
+
+        Vectorizer v5 = heap Vectorizer();
+        v5.setUseIdf(false);
+        v5.fit(docs);
+        VectorChunkTest.assertMatrix(v5.transform(docs),
+            "docs_tfidf_noidf", (int64) 6, V);
+
+        Vectorizer v6 = heap Vectorizer();
+        v6.setNorm("l1");
+        v6.fit(docs);
+        VectorChunkTest.assertMatrix(v6.transform(docs),
+            "docs_tfidf_l1", (int64) 6, V);
+        return;
+    }
+
+    // §9.2 + §9.7 — unseen transform never grows the vocabulary, and a
+    // persisted vectorizer reloads to identical indices and weights.
+    @Test
+    public void vocabularyIsFixedAndPersists() {
+        String[] docs = VectorChunkTest.corpus();
+        Vectorizer v = heap Vectorizer();
+        v.fit(docs);
+        int64 V = v.vocabSize();
+        String[] unseen = heap String[1];
+        unseen[0] = "the reactor telemetry surprised nobody quantumly";
+        CsrMatrix m = v.transform(unseen);
+        Assert.equals(m.colCount(), V);                // width unchanged
+        VectorChunkTest.assertMatrix(m, "docs_tfidf_unseen", (int64) 1, V);
+        Assert.equals(v.indexOf("quantumly"), (int64) -1);
+
+        String state = v.saveState();
+        Vectorizer r = Vectorizer.load(state);
+        Assert.equals(r.vocabSize(), V);
+        int64 i = 0;
+        while (i < V) {
+            Assert.isTrue(r.termAt(i).equals(v.termAt(i)));
+            Assert.equals(r.dfAt(i), v.dfAt(i));
+            i = i + 1;
+        }
+        VectorChunkTest.assertMatrix(r.transform(unseen),
+            "docs_tfidf_unseen", (int64) 1, V);
+        return;
+    }
+
+    static #Doc structured() {
+        DocBuilder b = heap DocBuilder("chunk-fixture");
+        int64 s1 = b.beginSection("Alpha");
+        int64 p1 = b.paragraph("First alpha paragraph, quite short.");
+        int64 p2 = b.paragraph("Second alpha paragraph is a bit longer "
+            + "than the first one for packing purposes.");
+        int64 cb = b.codeBlock("fn main() { let a = 1; let b = 2; "
+            + "let c = a + b; print(c); } // deliberately long atomic "
+            + "code block that would overflow a small chunk budget");
+        b.endSection();
+        int64 s2 = b.beginSection("Beta");
+        String[] hdr = heap String[2];
+        hdr[0] = "k"; hdr[1] = "v";
+        String[] cells = heap String[4];
+        cells[0] = "a"; cells[1] = "1";
+        cells[2] = "b"; cells[3] = "2";
+        int64 tb = b.table(hdr, cells, (int64) 2, (int64) 2);
+        int64 p3 = b.paragraph("A beta paragraph after the table.");
+        b.endSection();
+        return b.build();
+    }
+
+    // 7.1.3 + 7.1.4 + §13.8 — structure chunking never splits a table
+    // or code block; repeated runs are identical; §10.5 heading paths.
+    @Test
+    public void chunkingRespectsStructure() {
+        Doc d = VectorChunkTest.structured();
+        Chunker c = heap Chunker();
+        c.setStrategy("structure");
+        c.setMaxChars((int64) 90);
+        ChunkList l1 = c.chunk(d);
+        // Atomic blocks stay whole: every chunk range either contains
+        // the code block entirely or not at all.
+        int64[] code = d.nodesOfKind((int32) 7);
+        int64 cLo = d.charStart(code[0]);
+        int64 cHi = d.charEnd(code[0]);
+        int64 i = 0;
+        while (i < l1.count()) {
+            int64 lo = l1.charStart(i);
+            int64 hi = l1.charEnd(i);
+            boolean outside = hi <= cLo || lo >= cHi;
+            boolean containsWhole = lo <= cLo && hi >= cHi;
+            Assert.isTrue(outside || containsWhole);
+            i = i + 1;
+        }
+        // The oversized code block is flagged, not truncated (§10.6).
+        boolean sawOversized = false;
+        i = 0;
+        while (i < l1.count()) {
+            if (l1.isOversized(i)) { sawOversized = true; }
+            i = i + 1;
+        }
+        Assert.isTrue(sawOversized);
+        // Determinism (§10.7): a second run is identical.
+        ChunkList l2 = c.chunk(d);
+        Assert.equals(l2.count(), l1.count());
+        i = 0;
+        while (i < l1.count()) {
+            Assert.isTrue(l2.text(i).equals(l1.text(i)));
+            Assert.equals(l2.charStart(i), l1.charStart(i));
+            i = i + 1;
+        }
+        // Structure never packs across the section boundary.
+        i = 0;
+        while (i < l1.count()) {
+            Assert.isTrue(!(l1.sectionPath(i).equals("Alpha")
+                && l1.charEnd(i) > d.charStart(d.nodesOfKind((int32) 1)[1])));
+            i = i + 1;
+        }
+        // Provenance on every chunk (§10.4).
+        i = 0;
+        while (i < l1.count()) {
+            Assert.isTrue(l1.docHashOf().count() == (int64) 16);
+            Assert.isTrue(l1.charEnd(i) > l1.charStart(i));
+            i = i + 1;
+        }
+        // Heading paths keep an isolated chunk interpretable (§10.5).
+        Chunker hp = heap Chunker();
+        hp.setStrategy("paragraph");
+        hp.setHeadingPath(true);
+        ChunkList lh = hp.chunk(d);
+        Assert.isTrue(lh.text((int64) 0).contains("Alpha"));
+        return;
+    }
+
+    // §10.3 — overlap: adjacent chunks share tail content, so a fact on
+    // the boundary survives in at least one chunk whole.
+    @Test
+    public void overlapPreservesBoundaryFacts() {
+        // Six evenly-sized paragraphs so chunks hold 2-3 atoms and the
+        // tail atom of one chunk reappears at the head of the next.
+        DocBuilder b = heap DocBuilder("overlap-fixture");
+        int64 i0 = 0;
+        while (i0 < 6) {
+            int64 nid = b.paragraph("Fact number " + i0
+                + " occupies about forty characters here.");
+            i0 = i0 + 1;
+        }
+        Doc d = b.build();
+        Chunker c = heap Chunker();
+        c.setStrategy("fixed");
+        c.setMaxChars((int64) 160);
+        c.setOverlap((int64) 60);
+        ChunkList l = c.chunk(d);
+        Assert.isTrue(l.count() >= 2);
+        // Some adjacent pair overlaps in char ranges.
+        boolean overlapped = false;
+        int64 i = 1;
+        while (i < l.count()) {
+            if (l.charStart(i) < l.charEnd(i - 1)) { overlapped = true; }
+            i = i + 1;
+        }
+        Assert.isTrue(overlapped);
+        return;
+    }
+
+    // §10.6 — the "split" policy splits a DIVISIBLE paragraph with
+    // visible markers; sentence strategy counts sentences.
+    @Test
+    public void oversizeSplitAndSentences() {
+        DocBuilder b = heap DocBuilder("long-para");
+        int64 p = b.paragraph("This single paragraph rambles on far "
+            + "beyond any sensible chunk budget because it wants to be "
+            + "split with explicit markers rather than silently "
+            + "truncated by machinery that hides its own decisions.");
+        Doc d = b.build();
+        Chunker c = heap Chunker();
+        c.setStrategy("structure");
+        c.setMaxChars((int64) 60);
+        c.setOversize("split");
+        ChunkList l = c.chunk(d);
+        Assert.isTrue(l.count() >= 2);
+        Assert.isTrue(l.text((int64) 0).contains("[...]"));
+        Assert.isTrue(l.text(l.count() - 1).contains("[...]"));
+
+        DocBuilder b2 = heap DocBuilder("sentences");
+        int64 p2 = b2.paragraph("One here. Two here. Three here.");
+        Doc d2 = b2.build();
+        Chunker sc = heap Chunker();
+        sc.setStrategy("sentence");
+        ChunkList sl = sc.chunk(d2);
+        Assert.equals(sl.count(), (int64) 3);
+        return;
+    }
+}

@@ -1,0 +1,6 @@
+the reactor held steady under load
+the backup reactor tripped under peak load
+steady state was recovered after the trip
+peak load forecasting uses the reactor telemetry
+telemetry archives grow under steady collection
+forecasting the peak requires telemetry archives

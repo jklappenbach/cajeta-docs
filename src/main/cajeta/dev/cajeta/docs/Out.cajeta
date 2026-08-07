@@ -1,0 +1,58 @@
+package dev.cajeta.docs;
+
+import cajeta.collection.ArrayList;
+import cajeta.lang.Int64;
+import cajeta.lang.String;
+
+/** Package-private chunk accumulator for {@link Chunker}. */
+final class Out {
+
+    ArrayList<String> texts;
+    ArrayList<Int64> los;
+    ArrayList<Int64> his;
+    ArrayList<String> paths;
+    ArrayList<Int64> overs;
+
+    Out() {
+        this.texts = heap ArrayList<String>();
+        this.los = heap ArrayList<Int64>();
+        this.his = heap ArrayList<Int64>();
+        this.paths = heap ArrayList<String>();
+        this.overs = heap ArrayList<Int64>();
+        return;
+    }
+
+    void add(String text, int64 lo, int64 hi, String path,
+             boolean over) {
+        String t = "" + text;
+        this.texts.add(#t);
+        this.los.add(Int64.of(lo));
+        this.his.add(Int64.of(hi));
+        String p = "" + path;
+        this.paths.add(#p);
+        if (over) { this.overs.add(Int64.of((int64) 1)); }
+        else { this.overs.add(Int64.of((int64) 0)); }
+        return;
+    }
+
+    #ChunkList seal(Doc d) {
+        int64 m = (int64) this.texts.count();
+        String[] ta = heap String[m];
+        int64[] la = heap int64[m];
+        int64[] ha = heap int64[m];
+        String[] pa = heap String[m];
+        boolean[] oa = heap boolean[m];
+        int64 i = 0;
+        while (i < m) {
+            ta[i] = "" + this.texts.get((int32) i);
+            la[i] = this.los.get((int32) i).value();
+            ha[i] = this.his.get((int32) i).value();
+            pa[i] = "" + this.paths.get((int32) i);
+            oa[i] = this.overs.get((int32) i).value() == 1;
+            i = i + 1;
+        }
+        ChunkList out = heap ChunkList(#ta, #la, #ha, #pa, #oa,
+            d.contentHash(), d.source());
+        return #out;
+    }
+}

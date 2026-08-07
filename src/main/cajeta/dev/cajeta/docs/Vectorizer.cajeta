@@ -1,0 +1,436 @@
+package dev.cajeta.docs;
+
+import cajeta.collection.ArrayList;
+import cajeta.collection.HashMap;
+import cajeta.lang.Float64;
+import cajeta.lang.Int64;
+import cajeta.lang.String;
+import cajeta.lang.StringBuilder;
+import cajeta.nucleo.sparse.CsrMatrix;
+
+/**
+ * Count and TF-IDF vectorization over `CsrMatrix` (spec §9) —
+ * scikit-learn 1.9.0 semantics with EVERY variant named explicitly
+ * (§9.4: sklearn's defaults are NOT the textbook formula):
+ *
+ * - tokens: lowercase runs of `[a-z0-9_]` of length ≥ 2 — sklearn's
+ *   `token_pattern` — so vocabularies line up with the oracle;
+ * - `smoothIdf` (default true): `idf = ln((1+n)/(1+df)) + 1`; off:
+ *   `idf = ln(n/df) + 1`;
+ * - `sublinearTf` (default false): `tf ← 1 + ln(tf)`;
+ * - `useIdf` (default true); `norm`: `"l2"` (default), `"l1"`,
+ *   `"none"` — row normalization.
+ *
+ * The vocabulary is FIXED at fit (§9.2): transforming unseen text
+ * ignores unknown terms and never grows the width. Everything stays
+ * sparse (§9.6). {@link #saveState}/{@link #load} persist the fitted
+ * vocabulary and statistics so stored matrices stay valid (§9.7).
+ */
+public final class Vectorizer {
+
+    boolean smoothIdf;
+    boolean sublinearTf;
+    boolean useIdf;
+    String norm;
+
+    String[] vocab;
+    HashMap<String, Int64> index;
+    int64[] df;
+    int64 nDocs;
+    boolean fitted;
+
+    public Vectorizer() {
+        this.smoothIdf = true;
+        this.sublinearTf = false;
+        this.useIdf = true;
+        this.norm = "l2";
+        this.fitted = false;
+        return;
+    }
+
+    /** §9.4 variant switches — named, not defaulted silently. */
+    public void setSmoothIdf(boolean on) { this.smoothIdf = on; return; }
+
+    public void setSublinearTf(boolean on) {
+        this.sublinearTf = on;
+        return;
+    }
+
+    public void setUseIdf(boolean on) { this.useIdf = on; return; }
+
+    /** Row norm: "l2" (sklearn default), "l1", or "none". */
+    public void setNorm(String norm) {
+        if (!norm.equals("l2") && !norm.equals("l1")
+            && !norm.equals("none")) {
+            throw heap DocsException("Vectorizer: norm must be l2/l1/none");
+        }
+        this.norm = "" + norm;
+        return;
+    }
+
+    /** Fit the vocabulary over the corpus (§9.1). */
+    public void fit(String[] corpus) {
+        int64 n = (int64) corpus.count();
+        if (n < 1) {
+            throw heap DocsException("Vectorizer.fit: empty corpus");
+        }
+        // Collect terms + per-doc presence.
+        HashMap<String, Int64> dfMap = heap HashMap<String, Int64>();
+        ArrayList<String> order = heap ArrayList<String>();
+        int64 d = 0;
+        while (d < n) {
+            TokenList toks = Vectorizer.skTokens(corpus[d]);
+            HashMap<String, Int64> seen = heap HashMap<String, Int64>();
+            int64 t = 0;
+            while (t < toks.count()) {
+                String term = toks.term(t);
+                if (seen.get(term) == null) {
+                    String k1 = "" + term;
+                    seen.put(#k1, Int64.of((int64) 1));
+                    Int64 cur = dfMap.get(term);
+                    if (cur == null) {
+                        String k2 = "" + term;
+                        dfMap.put(#k2, Int64.of((int64) 1));
+                        String k3 = "" + term;
+                        order.add(#k3);
+                    } else {
+                        String k2 = "" + term;
+                        dfMap.put(#k2, Int64.of(cur.value() + 1));
+                    }
+                }
+                t = t + 1;
+            }
+            d = d + 1;
+        }
+        // Sorted vocabulary (sklearn's alphabetical order).
+        int64 v = (int64) order.count();
+        String[] sorted = heap String[v];
+        int64 i = 0;
+        while (i < v) { sorted[i] = "" + order.get((int32) i); i = i + 1; }
+        int64 a = 0;
+        while (a < v) {
+            int64 b = a + 1;
+            while (b < v) {
+                if (Vectorizer.less(sorted[b], sorted[a])) {
+                    // Swap via fresh copies: aliasing two slots to one
+                    // String object double-drops when the array dies.
+                    String tmpA = "" + sorted[a];
+                    sorted[a] = "" + sorted[b];
+                    sorted[b] = "" + tmpA;
+                }
+                b = b + 1;
+            }
+            a = a + 1;
+        }
+        HashMap<String, Int64> ix = heap HashMap<String, Int64>();
+        int64[] dfa = heap int64[v];
+        i = 0;
+        while (i < v) {
+            dfa[i] = dfMap.get(sorted[i]).value();
+            String k = "" + sorted[i];
+            ix.put(#k, Int64.of(i));
+            i = i + 1;
+        }
+        this.vocab #= sorted;
+        this.index #= ix;
+        this.df #= dfa;
+        this.nDocs = n;
+        this.fitted = true;
+        return;
+    }
+
+    /** Vocabulary size. */
+    public int64 vocabSize() {
+        this.check();
+        return (int64) this.vocab.count();
+    }
+
+    /** The term at index `i` (§9.1 — stable both ways). */
+    public #String termAt(int64 i) {
+        this.check();
+        String out = "" + this.vocab[i];
+        return #out;
+    }
+
+    /** The index of `term`, or −1. */
+    public int64 indexOf(String term) {
+        this.check();
+        Int64 v = this.index.get(term);
+        if (v == null) { return -1; }
+        return v.value();
+    }
+
+    /** Document frequency of term `i` (§9.1). */
+    public int64 dfAt(int64 i) {
+        this.check();
+        return this.df[i];
+    }
+
+    /** Raw counts as a sparse matrix (§9.3). */
+    public #CsrMatrix counts(String[] docs) {
+        this.check();
+        return this.matrix(docs, false);
+    }
+
+    /** TF-IDF under the configured variants (§9.4). */
+    public #CsrMatrix transform(String[] docs) {
+        this.check();
+        return this.matrix(docs, true);
+    }
+
+    #CsrMatrix matrix(String[] docs, boolean weighted) {
+        int64 rows = (int64) docs.count();
+        int64 v = (int64) this.vocab.count();
+        ArrayList<Int64> rr = heap ArrayList<Int64>();
+        ArrayList<Int64> cc = heap ArrayList<Int64>();
+        ArrayList<Float64> vv2 = heap ArrayList<Float64>();
+        int64 d = 0;
+        while (d < rows) {
+            float64[] rowCounts = heap float64[v];
+            TokenList toks = Vectorizer.skTokens(docs[d]);
+            int64 t = 0;
+            while (t < toks.count()) {
+                int64 ix = this.indexOf(toks.term(t));
+                if (ix >= 0) { rowCounts[ix] = rowCounts[ix] + 1.0; }
+                t = t + 1;
+            }
+            if (weighted) {
+                int64 c = 0;
+                while (c < v) {
+                    if (rowCounts[c] > 0.0) {
+                        float64 tf = rowCounts[c];
+                        if (this.sublinearTf) { tf = 1.0 + Math.log(tf); }
+                        float64 w = tf;
+                        if (this.useIdf) { w = tf * this.idfOf(c); }
+                        rowCounts[c] = w;
+                    }
+                    c = c + 1;
+                }
+                if (this.norm.equals("l2")) {
+                    float64 acc = 0.0;
+                    c = 0;
+                    while (c < v) {
+                        acc = acc + rowCounts[c] * rowCounts[c];
+                        c = c + 1;
+                    }
+                    if (acc > 0.0) {
+                        float64 s = Math.sqrt(acc);
+                        c = 0;
+                        while (c < v) {
+                            rowCounts[c] = rowCounts[c] / s;
+                            c = c + 1;
+                        }
+                    }
+                } else if (this.norm.equals("l1")) {
+                    float64 acc = 0.0;
+                    c = 0;
+                    while (c < v) {
+                        float64 av = rowCounts[c];
+                        if (av < 0.0) { av = -av; }
+                        acc = acc + av;
+                        c = c + 1;
+                    }
+                    if (acc > 0.0) {
+                        c = 0;
+                        while (c < v) {
+                            rowCounts[c] = rowCounts[c] / acc;
+                            c = c + 1;
+                        }
+                    }
+                }
+            }
+            int64 c2 = 0;
+            while (c2 < v) {
+                if (rowCounts[c2] != 0.0) {
+                    rr.add(Int64.of(d));
+                    cc.add(Int64.of(c2));
+                    vv2.add(Float64.of(rowCounts[c2]));
+                }
+                c2 = c2 + 1;
+            }
+            d = d + 1;
+        }
+        int64 nnz = (int64) rr.count();
+        int64[] ra = heap int64[nnz];
+        int64[] ca = heap int64[nnz];
+        float64[] va = heap float64[nnz];
+        int64 i = 0;
+        while (i < nnz) {
+            ra[i] = rr.get((int32) i).value();
+            ca[i] = cc.get((int32) i).value();
+            va[i] = vv2.get((int32) i).value();
+            i = i + 1;
+        }
+        return CsrMatrix.fromCoo(ra, ca, va, nnz, rows, v);
+    }
+
+    float64 idfOf(int64 c) {
+        float64 n = (float64) this.nDocs;
+        float64 dfc = (float64) this.df[c];
+        if (this.smoothIdf) {
+            return Math.log((1.0 + n) / (1.0 + dfc)) + 1.0;
+        }
+        return Math.log(n / dfc) + 1.0;
+    }
+
+    /** Persist the fitted state (§9.7): opts + n + `term df` lines. */
+    public #String saveState() {
+        this.check();
+        StringBuilder sb = heap StringBuilder();
+        sb.append("vectorizer1\n");
+        if (this.smoothIdf) { sb.append("smooth 1\n"); }
+        else { sb.append("smooth 0\n"); }
+        if (this.sublinearTf) { sb.append("sublinear 1\n"); }
+        else { sb.append("sublinear 0\n"); }
+        if (this.useIdf) { sb.append("idf 1\n"); } else { sb.append("idf 0\n"); }
+        sb.append("norm " + this.norm + "\n");
+        sb.append("docs " + this.nDocs + "\n");
+        int64 i = 0;
+        while (i < (int64) this.vocab.count()) {
+            sb.append(this.vocab[i] + " " + this.df[i] + "\n");
+            i = i + 1;
+        }
+        return sb.toString();
+    }
+
+    /** Reload a persisted vectorizer — indices identical (§9.7). */
+    public static #Vectorizer load(String state) {
+        Vectorizer v = heap Vectorizer();
+        ArrayList<String> terms = heap ArrayList<String>();
+        ArrayList<Int64> dfs = heap ArrayList<Int64>();
+        int64 n = state.count();
+        int64 i = 0;
+        int64 lineNo = 0;
+        while (i < n) {
+            int64 eol = i;
+            while (eol < n && state.charAt((int32) eol) != 10) {
+                eol = eol + 1;
+            }
+            String line = state.substring((int32) i, (int32) eol);
+            if (lineNo == 0) {
+                if (!line.equals("vectorizer1")) {
+                    throw heap DocsException("Vectorizer.load: bad header");
+                }
+            } else if (lineNo >= 1 && lineNo <= 5) {
+                int64 sp = line.indexOf(" ");
+                String key = line.substring((int32) 0, (int32) sp);
+                String val = line.substring((int32) (sp + 1),
+                                            (int32) line.count());
+                if (key.equals("smooth")) {
+                    v.smoothIdf = val.equals("1");
+                } else if (key.equals("sublinear")) {
+                    v.sublinearTf = val.equals("1");
+                } else if (key.equals("idf")) {
+                    v.useIdf = val.equals("1");
+                } else if (key.equals("norm")) {
+                    v.norm = "" + val;
+                } else if (key.equals("docs")) {
+                    v.nDocs = Vectorizer.parseI(val);
+                }
+            } else if (line.count() > 0) {
+                int64 sp = line.indexOf(" ");
+                String term = line.substring((int32) 0, (int32) sp);
+                String dfv = line.substring((int32) (sp + 1),
+                                            (int32) line.count());
+                terms.add(#term);
+                dfs.add(Int64.of(Vectorizer.parseI(dfv)));
+            }
+            lineNo = lineNo + 1;
+            i = eol + 1;
+        }
+        int64 m = (int64) terms.count();
+        String[] vv = heap String[m];
+        int64[] dd = heap int64[m];
+        HashMap<String, Int64> ix = heap HashMap<String, Int64>();
+        int64 k = 0;
+        while (k < m) {
+            vv[k] = "" + terms.get((int32) k);
+            dd[k] = dfs.get((int32) k).value();
+            String key = "" + vv[k];
+            ix.put(#key, Int64.of(k));
+            k = k + 1;
+        }
+        v.vocab #= vv;
+        v.df #= dd;
+        v.index #= ix;
+        v.fitted = true;
+        return #v;
+    }
+
+    static int64 parseI(String s) {
+        int64 v = 0;
+        int64 i = 0;
+        while (i < s.count()) {
+            int8 c = s.charAt((int32) i);
+            if (c >= 48 && c <= 57) { v = v * 10 + (int64) c - 48; }
+            i = i + 1;
+        }
+        return v;
+    }
+
+    /** sklearn's token rule: lowercase `\\w\\w+` runs. */
+    static #TokenList skTokens(String text) {
+        String low = text.toLowerCase();
+        ArrayList<String> terms = heap ArrayList<String>();
+        ArrayList<Int64> los = heap ArrayList<Int64>();
+        ArrayList<Int64> his = heap ArrayList<Int64>();
+        int64 n = low.count();
+        int64 i = 0;
+        while (i < n) {
+            while (i < n && !Vectorizer.isWord(low.charAt((int32) i))) {
+                i = i + 1;
+            }
+            int64 lo = i;
+            while (i < n && Vectorizer.isWord(low.charAt((int32) i))) {
+                i = i + 1;
+            }
+            if (i - lo >= 2) {                          // sklearn: ≥ 2
+                String term = low.substring((int32) lo, (int32) i);
+                terms.add(#term);
+                los.add(Int64.of(lo));
+                his.add(Int64.of(i));
+            }
+        }
+        int64 m = (int64) terms.count();
+        String[] ta = heap String[m];
+        int64[] la = heap int64[m];
+        int64[] ha = heap int64[m];
+        int64 k = 0;
+        while (k < m) {
+            ta[k] = "" + terms.get((int32) k);
+            la[k] = los.get((int32) k).value();
+            ha[k] = his.get((int32) k).value();
+            k = k + 1;
+        }
+        TokenList out = heap TokenList(#ta, #la, #ha);
+        return #out;
+    }
+
+    static boolean isWord(int8 c) {
+        if (c >= 97 && c <= 122) { return true; }
+        if (c >= 48 && c <= 57) { return true; }
+        if (c == 95) { return true; }
+        if (c < 0) { return true; }                    // UTF-8 bytes
+        return false;
+    }
+
+    static boolean less(String a, String b) {
+        int64 na = a.count();
+        int64 nb = b.count();
+        int64 i = 0;
+        while (i < na && i < nb) {
+            int8 ca = a.charAt((int32) i);
+            int8 cb = b.charAt((int32) i);
+            if (ca != cb) { return ca < cb; }
+            i = i + 1;
+        }
+        return na < nb;
+    }
+
+    void check() {
+        if (!this.fitted) {
+            throw heap DocsException("Vectorizer: not fitted yet");
+        }
+        return;
+    }
+}

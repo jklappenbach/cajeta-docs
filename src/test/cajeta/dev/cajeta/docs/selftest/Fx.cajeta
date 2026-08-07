@@ -1,0 +1,44 @@
+package dev.cajeta.docs.selftest;
+
+import cajeta.error.RecoverableException;
+import cajeta.io.file.File;
+import cajeta.lang.String;
+import cajeta.lang.StringBuilder;
+import cajeta.math.Tensor;
+import cajeta.math.npio.Npy;
+
+/**
+ * Fixture access for the docs suite: `.npy` and text files under
+ * `$DOCS_FIXTURES` (set by run-tests.sh). The sklearn pins were
+ * computed at 1.9.0; the WordPiece reference over the committed
+ * bert-base-uncased vocabulary by HuggingFace `tokenizers`.
+ */
+public final class Fx {
+
+    public static #String root() {
+        String r = System.env.get("DOCS_FIXTURES");
+        if (r == null) {
+            throw heap RecoverableException(
+                "DOCS_FIXTURES not set — run the suite via run-tests.sh");
+        }
+        String out = "" + r;
+        return #out;
+    }
+
+    public static #Tensor<float64> load(String name) {
+        return Npy.loadF64(Fx.root() + "/" + name + ".npy");
+    }
+
+    public static #String readText(String name) {
+        int8[] bytes = File.readAllBytes(Fx.root() + "/" + name);
+        StringBuilder sb = heap StringBuilder();
+        sb.appendBytes(bytes, (int32) 0, (int32) bytes.count());
+        return sb.toString();
+    }
+
+    public static boolean close(float64 a, float64 b, float64 tol) {
+        float64 d = a - b;
+        if (d < 0.0) { d = -d; }
+        return d < tol;
+    }
+}
