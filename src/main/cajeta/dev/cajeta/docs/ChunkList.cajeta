@@ -1,0 +1,69 @@
+package dev.cajeta.docs;
+
+import cajeta.lang.String;
+
+/**
+ * Chunks with their provenance (spec §10.4 — a chunk WITHOUT
+ * provenance is not valid output): the emitted text (heading path
+ * prepended when configured), the char range over the source document,
+ * the section path, and the oversized flag (§10.6's explicit policy).
+ */
+public final class ChunkList {
+
+    String[] texts;
+    int64[] lo;
+    int64[] hi;
+    String[] paths;
+    boolean[] oversized;
+    String docHash;
+    String sourceId;
+
+    ChunkList(#String[] texts, #int64[] lo, #int64[] hi,
+              #String[] paths, #boolean[] oversized, #String docHash,
+              #String sourceId) {
+        this.texts #= texts;
+        this.lo #= lo;
+        this.hi #= hi;
+        this.paths #= paths;
+        this.oversized #= oversized;
+        this.docHash #= docHash;
+        this.sourceId #= sourceId;
+        return;
+    }
+
+    /** Number of chunks. */
+    public int64 count() { return (int64) this.texts.count(); }
+
+    /** The chunk's emitted text. */
+    public #String text(int64 i) {
+        String out = "" + this.texts[i];
+        return #out;
+    }
+
+    /** Char-range start in the source document (§10.4). */
+    public int64 charStart(int64 i) { return this.lo[i]; }
+
+    /** Char-range end (exclusive). */
+    public int64 charEnd(int64 i) { return this.hi[i]; }
+
+    /** The section path of the chunk's first block. */
+    public #String sectionPath(int64 i) {
+        String out = "" + this.paths[i];
+        return #out;
+    }
+
+    /** True when the chunk exceeded maxChars under the "emit" policy. */
+    public boolean isOversized(int64 i) { return this.oversized[i]; }
+
+    /** The source document's content hash. */
+    public #String docHashOf() {
+        String out = "" + this.docHash;
+        return #out;
+    }
+
+    /** The source document's id. */
+    public #String sourceOf() {
+        String out = "" + this.sourceId;
+        return #out;
+    }
+}

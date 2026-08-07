@@ -1,0 +1,91 @@
+package dev.cajeta.docs.selftest;
+
+import dev.cajeta.unit.Assert;
+import cajeta.lang.String;
+import dev.cajeta.docs.Subword;
+
+/**
+ * cajeta-docs U7 — subword tokenization (7.1.9–7.1.11): WordPiece over
+ * the COMMITTED bert-base-uncased vocabulary matches HuggingFace's
+ * tokenizer TOKEN-FOR-TOKEN (§13.9 — one disagreement is a defect,
+ * §10.9); BPE applies supplied merges exactly; counting never
+ * materializes the strings (§10.10).
+ */
+public class SubwordTest {
+
+    public SubwordTest() { return; }
+
+    // 7.1.9 + 7.1.10 — the published-vocabulary pin, token-for-token.
+    @Test
+    public void wordpieceMatchesTheReference() {
+        String vocab = Fx.readText("bert-base-uncased-vocab.txt");
+        Subword wp = Subword.wordpiece(vocab);
+        String input = Fx.readText("docs_wordpiece_input.txt");
+        // Trim the trailing newline.
+        int64 n = input.count();
+        while (n > 0 && (input.charAt((int32) (n - 1)) == 10
+               || input.charAt((int32) (n - 1)) == 13)) {
+            n = n - 1;
+        }
+        String text = input.substring((int32) 0, (int32) n);
+        String[] got = wp.tokenize(text);
+
+        String wantAll = Fx.readText("docs_wordpiece_tokens.txt");
+        int64 wi = 0;
+        int64 pos = 0;
+        while (pos < wantAll.count()) {
+            int64 eol = pos;
+            while (eol < wantAll.count()
+                   && wantAll.charAt((int32) eol) != 10) {
+                eol = eol + 1;
+            }
+            if (eol > pos) {
+                String want = wantAll.substring((int32) pos, (int32) eol);
+                Assert.isTrue(wi < (int64) got.count());
+                // §10.9: ONE token of disagreement is a defect.
+                Assert.isTrue(got[wi].equals(want));
+                wi = wi + 1;
+            }
+            pos = eol + 1;
+        }
+        Assert.equals((int64) got.count(), wi);        // no extras either
+
+        // 7.1.11 — counting without materializing agrees exactly.
+        Assert.equals(wp.countTokens(text), wi);
+        return;
+    }
+
+    // BPE with supplied merges, hand-computable: l o w e r →
+    // (l o)→lo, (lo w)→low, (e r)→er, (low er)→lower.
+    @Test
+    public void bpeAppliesMergesInOrder() {
+        String vocab = "l\no\nw\ne\nr\nlo\nlow\ner\nlower\n";
+        String merges = "l o\nlo w\ne r\nlow er\n";
+        Subword bpe = Subword.bpe(vocab, merges);
+        String[] t1 = bpe.tokenize("lower");
+        Assert.equals((int64) t1.count(), (int64) 1);
+        Assert.isTrue(t1[0].equals("lower"));
+        // A word the merges only partially cover.
+        String[] t2 = bpe.tokenize("lowe");
+        Assert.equals((int64) t2.count(), (int64) 2);
+        Assert.isTrue(t2[0].equals("low"));
+        Assert.isTrue(t2[1].equals("e"));
+        Assert.equals(bpe.countTokens("lower lowe"), (int64) 3);
+        return;
+    }
+
+    // [UNK] semantics: a word with no matching piece is ONE [UNK].
+    @Test
+    public void unknownWordsCollapse() {
+        String vocab = "the\ncat\n##s\n";
+        Subword wp = Subword.wordpiece(vocab);
+        String[] t = wp.tokenize("the zzqx cats");
+        Assert.equals((int64) t.count(), (int64) 4);
+        Assert.isTrue(t[0].equals("the"));
+        Assert.isTrue(t[1].equals("[UNK]"));
+        Assert.isTrue(t[2].equals("cat"));
+        Assert.isTrue(t[3].equals("##s"));
+        Assert.equals(wp.countTokens("the zzqx cats"), (int64) 4);
+        return;
+    }
+}
