@@ -75,7 +75,7 @@ public final class CsvJsonReader {
         JsonValue v = jr.readValue();
         if (v.kind() == JsonValue.ARRAY
             && CsvJsonReader.isFlatObjectArray(v)) {
-            CsvJsonReader.arrayTable(b, v.asArray());
+            CsvJsonReader.arrayTable(b, v.array());
         } else {
             CsvJsonReader.walk(b, v, "");
         }
@@ -83,13 +83,13 @@ public final class CsvJsonReader {
     }
 
     static boolean isFlatObjectArray(JsonValue v) {
-        JsonArray a = v.asArray();
+        JsonArray a = v.array();
         if (a.count() < 1) { return false; }
         int32 i = 0;
         while (i < a.count()) {
             JsonValue e = a.get(i);
             if (e.kind() != JsonValue.OBJECT) { return false; }
-            JsonObject o = e.asObject();
+            JsonObject o = e.object();
             int32 k = 0;
             while (k < o.count()) {
                 int32 kk = o.valueAt(k).kind();
@@ -105,7 +105,7 @@ public final class CsvJsonReader {
 
     static void arrayTable(DocBuilder b, JsonArray a) {
         // Columns = the FIRST object's keys, in order.
-        JsonObject first = a.get((int32) 0).asObject();
+        JsonObject first = a.get((int32) 0).object();
         int64 cols = (int64) first.count();
         String[] hdr = heap String[cols];
         int32 k = 0;
@@ -119,7 +119,7 @@ public final class CsvJsonReader {
         String[] bd = heap String[rows * cols];
         int32 r = 0;
         while (r < (int32) rows) {
-            JsonObject o = a.get(r).asObject();
+            JsonObject o = a.get(r).object();
             k = 0;
             while (k < (int32) cols) {
                 JsonValue cell = o.get(hdr[k]);
@@ -138,7 +138,7 @@ public final class CsvJsonReader {
 
     static void walk(DocBuilder b, JsonValue v, String path) {
         if (v.kind() == JsonValue.OBJECT) {
-            JsonObject o = v.asObject();
+            JsonObject o = v.object();
             int32 k = 0;
             while (k < o.count()) {
                 StringBuilder sb = heap StringBuilder();
@@ -150,7 +150,7 @@ public final class CsvJsonReader {
                 k = k + 1;
             }
         } else if (v.kind() == JsonValue.ARRAY) {
-            JsonArray a = v.asArray();
+            JsonArray a = v.array();
             int32 i = 0;
             while (i < a.count()) {
                 CsvJsonReader.walk(b, a.get(i), path + "[" + (int64) i
