@@ -2,3 +2,6 @@ build/
 __pycache__/
 tools/fixtures/corpus-tmp/*
 !tools/fixtures/corpus-tmp/.gitkeep
+
+# Compiler cache — bitcode and prebuilt archives, regenerated on every build.
+**/.cajeta/cache/
