@@ -44,13 +44,13 @@ public final class MarkdownReader {
                     lo = lo + 1;
                 }
                 while (lo < eol && bytes[lo] == 32) { lo = lo + 1; }
-                String title = MarkdownReader.slice(bytes, lo, eol);
+                String title #= MarkdownReader.slice(bytes, lo, eol);
                 // Close sections at >= this level, then open.
                 while (secLevels.count() > 0
                        && secLevels.get(secLevels.count() - 1).value()
                           >= lvl) {
                     b.endSection();
-                    Int64 popped = secLevels.removeAt(
+                    Int64 popped #= secLevels.removeAt(
                         secLevels.count() - 1);
                 }
                 int64 nid = b.beginSection(title);
@@ -86,7 +86,7 @@ public final class MarkdownReader {
                         + ": unterminated code fence opened at offset "
                         + i);
                 }
-                int64 nid = b.codeBlock(code.toString());
+                int64 nid #= b.codeBlock(code.toString());
                 eol = j - 1;
             } else if (!blank && (bytes[lo] == 45 || bytes[lo] == 42)
                        && lo + 1 < eol && bytes[lo + 1] == 32) {
@@ -97,7 +97,7 @@ public final class MarkdownReader {
                     int64 lnid = b.beginList();
                     inList = true;
                 }
-                String item = MarkdownReader.inline(b, bytes, lo + 2, eol);
+                String item #= MarkdownReader.inline(b, bytes, lo + 2, eol);
                 int64 nid = b.listItem(item);
             } else if (!blank && bytes[lo] == 124) {   // '|' table
                 MarkdownReader.flushPara(b, para);
@@ -112,7 +112,7 @@ public final class MarkdownReader {
             } else {
                 // Paragraph continuation.
                 if (!para.isEmpty()) { para.append(" "); }
-                String frag = MarkdownReader.inline(b, bytes, lo, eol);
+                String frag #= MarkdownReader.inline(b, bytes, lo, eol);
                 para.append(frag);
             }
             i = eol + 1;
@@ -121,14 +121,14 @@ public final class MarkdownReader {
         if (inList) { b.endList(); }
         while (secLevels.count() > 0) {
             b.endSection();
-            Int64 popped = secLevels.removeAt(secLevels.count() - 1);
+            Int64 popped #= secLevels.removeAt(secLevels.count() - 1);
         }
         return b.build();
     }
 
     static void flushPara(DocBuilder b, StringBuilder para) {
         if (!para.isEmpty()) {
-            int64 nid = b.paragraph(para.toString());
+            int64 nid #= b.paragraph(para.toString());
         }
         return;
     }
@@ -168,9 +168,9 @@ public final class MarkdownReader {
                     close = close + 1;
                 }
                 if (mid < hi && close < hi) {
-                    String text = MarkdownReader.slice(bytes, tOpen + 1,
+                    String text #= MarkdownReader.slice(bytes, tOpen + 1,
                                                        mid);
-                    String url = MarkdownReader.slice(bytes, mid + 2,
+                    String url #= MarkdownReader.slice(bytes, mid + 2,
                                                       close);
                     if (isImage) {
                         int64 nid = b.image(null, text, null);
@@ -214,7 +214,7 @@ public final class MarkdownReader {
                 lo = lo + 1;
             }
             if (lo >= eol || bytes[lo] != 124) { break; }
-            String line = MarkdownReader.slice(bytes, lo, eol);
+            String line #= MarkdownReader.slice(bytes, lo, eol);
             rows.add(#line);
             i = eol + 1;
         }
@@ -224,7 +224,7 @@ public final class MarkdownReader {
             int64 nid = b.paragraph(rows.get((int32) 0));
             return i;
         }
-        ArrayList<String> header = MarkdownReader.cells(
+        ArrayList<String> header #= MarkdownReader.cells(
             rows.get((int32) 0));
         int64 nc = (int64) header.count();
         int64 nBody = (int64) rows.count() - 2;
@@ -237,7 +237,7 @@ public final class MarkdownReader {
         String[] body = heap String[nBody * nc];
         int64 r = 0;
         while (r < nBody) {
-            ArrayList<String> cs = MarkdownReader.cells(
+            ArrayList<String> cs #= MarkdownReader.cells(
                 rows.get((int32) (r + 2)));
             c = 0;
             while (c < (int32) nc) {
@@ -260,7 +260,7 @@ public final class MarkdownReader {
         while (i < n) {
             int8 c = row.charAt((int32) i);
             if (c == 124) {
-                String cell = MarkdownReader.trimStr(cur.toString());
+                String cell #= MarkdownReader.trimStr(cur.toString());
                 out.add(#cell);
                 cur = heap StringBuilder();
             } else {
@@ -271,7 +271,7 @@ public final class MarkdownReader {
             i = i + 1;
         }
         if (!cur.isEmpty()) {
-            String tail = MarkdownReader.trimStr(cur.toString());
+            String tail #= MarkdownReader.trimStr(cur.toString());
             if (tail.count() > 0) { out.add(#tail); }
         }
         return #out;

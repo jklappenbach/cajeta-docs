@@ -32,7 +32,7 @@ public class TextPipelineTest {
         lig[5] = 32; lig[6] = 65;                       // " A"
         String s = heap String(#lig, (int32) 7);
         Analyzer a = heap Analyzer();
-        String norm = a.normalize(s);
+        String norm #= a.normalize(s);
         Assert.isTrue(norm.contains("file"));           // ligature split
         Assert.isTrue(norm.contains("a"));              // folded
         Assert.isTrue(!norm.contains("A"));
@@ -43,7 +43,7 @@ public class TextPipelineTest {
         soft[4] = 111; soft[5] = 112; soft[6] = 101;    // "ope"
         soft[7] = 114; soft[8] = 97; soft[9] = 116;     // "rat"
         String s2 = heap String(#soft, (int32) 10);
-        String norm2 = a.normalize(s2);
+        String norm2 #= a.normalize(s2);
         Assert.isTrue(norm2.equals("cooperat"));        // SHY removed
         return;
     }
@@ -55,7 +55,7 @@ public class TextPipelineTest {
     public void analysisChainIsReusable() {
         Analyzer a = heap Analyzer();
         String text = "The Measurement held; the anomaly did not recur.";
-        TokenList t1 = a.analyze(text);
+        TokenList t1 #= a.analyze(text);
         // Stopwords (the, did, not) are gone; case folded.
         int64 i = 0;
         boolean sawThe = false;
@@ -69,7 +69,7 @@ public class TextPipelineTest {
         Assert.isTrue(t1.endOf((int64) 0) > t1.startOf((int64) 0));
 
         // Determinism: the same chain, the same text, twice (§8.6).
-        TokenList t2 = a.analyze(text);
+        TokenList t2 #= a.analyze(text);
         Assert.equals(t2.count(), t1.count());
         i = 0;
         while (i < t1.count()) {
@@ -79,12 +79,12 @@ public class TextPipelineTest {
         }
         // Query-time reuse: a query token matches a document token
         // because the rules are the same object.
-        TokenList q = a.analyze("MEASUREMENT?");
+        TokenList q #= a.analyze("MEASUREMENT?");
         Assert.isTrue(q.term((int64) 0).equals(t1.term((int64) 0)));
 
         // Stopwords disabled → "the" reappears.
         a.setStopwordsEnabled(false);
-        TokenList t3 = a.analyze(text);
+        TokenList t3 #= a.analyze(text);
         Assert.isTrue(t3.term((int64) 0).equals("the"));
         a.setStopwordsEnabled(true);
 
@@ -92,7 +92,7 @@ public class TextPipelineTest {
         String[] custom = heap String[1];
         custom[0] = "anomaly";
         a.setStopwords(custom);
-        TokenList t4 = a.analyze(text);
+        TokenList t4 #= a.analyze(text);
         i = 0;
         boolean sawAnomaly = false;
         while (i < t4.count()) {
@@ -104,8 +104,8 @@ public class TextPipelineTest {
         // n-grams (§8.5).
         Analyzer b = heap Analyzer();
         b.setStopwordsEnabled(false);
-        TokenList tt = b.analyze("one two three");
-        String[] bi = b.ngrams(tt, (int64) 2, (int64) 2);
+        TokenList tt #= b.analyze("one two three");
+        String[] bi #= b.ngrams(tt, (int64) 2, (int64) 2);
         Assert.equals((int64) bi.count(), (int64) 2);
         Assert.isTrue(bi[0].equals("one two"));
         Assert.isTrue(bi[1].equals("two three"));
@@ -115,7 +115,7 @@ public class TextPipelineTest {
         w.setTokenizer("whitespace");
         w.setStopwordsEnabled(false);
         w.setCaseFold(false);
-        TokenList tw = w.analyze("don't panic!");
+        TokenList tw #= w.analyze("don't panic!");
         Assert.equals(tw.count(), (int64) 2);
         Assert.isTrue(tw.term((int64) 0).equals("don't"));
         return;
@@ -131,18 +131,18 @@ public class TextPipelineTest {
             + "He said \"It works.\" "
             + "Then... everyone left. "
             + "See Fig. 2 for et al. citations.";
-        SentenceList s = g.segment(text);
+        SentenceList s #= g.segment(text);
         Assert.equals(s.count(), (int64) 4);
-        String s0 = text.substring((int32) s.startOf((int64) 0),
+        String s0 #= text.substring((int32) s.startOf((int64) 0),
                                    (int32) s.endOf((int64) 0));
         Assert.isTrue(s0.equals("Dr. Smith measured 3.14 yesterday."));
-        String s1 = text.substring((int32) s.startOf((int64) 1),
+        String s1 #= text.substring((int32) s.startOf((int64) 1),
                                    (int32) s.endOf((int64) 1));
         Assert.isTrue(s1.equals("He said \"It works.\""));
-        String s2 = text.substring((int32) s.startOf((int64) 2),
+        String s2 #= text.substring((int32) s.startOf((int64) 2),
                                    (int32) s.endOf((int64) 2));
         Assert.isTrue(s2.equals("Then... everyone left."));
-        String s3 = text.substring((int32) s.startOf((int64) 3),
+        String s3 #= text.substring((int32) s.startOf((int64) 3),
                                    (int32) s.endOf((int64) 3));
         Assert.isTrue(s3.equals("See Fig. 2 for et al. citations."));
 
@@ -156,10 +156,10 @@ public class TextPipelineTest {
         b.pageBreak();
         b.paragraphText("the page boundary cleanly.");
         b.endParagraph();
-        Doc d = b.build();
-        int64[] pages = d.pagesOf(p);
+        Doc d #= b.build();
+        int64[] pages #= d.pagesOf(p);
         Assert.equals((int64) pages.count(), (int64) 2);
-        SentenceList ds = g.segment(d.text(p));
+        SentenceList ds #= g.segment(d.text(p));
         // Two text runs, one logical sentence per run-joining policy:
         // the runs carry their own newline terminators, so the claim
         // is: NO break was inserted by the PAGE — the sentence count
@@ -169,8 +169,8 @@ public class TextPipelineTest {
         b2.paragraphText("The result held across");
         b2.paragraphText("the page boundary cleanly.");
         b2.endParagraph();
-        Doc d2 = b2.build();
-        SentenceList fs = g.segment(d2.text(p2));
+        Doc d2 #= b2.build();
+        SentenceList fs #= g.segment(d2.text(p2));
         Assert.equals(ds.count(), fs.count());
         return;
     }

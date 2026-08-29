@@ -25,8 +25,8 @@ public class ReaderTest {
     public void sniffingBeatsTheExtension() {
         String html = "<html><body><p>Not a csv at all.</p></body></html>";
         Assert.isTrue(Reader.sniff(html.toBytes()).equals("html"));
-        Doc d = Reader.read("mislabelled.csv", html.toBytes());
-        int64[] paras = d.nodesOfKind(NodeKind.PARAGRAPH());
+        Doc d #= Reader.read("mislabelled.csv", html.toBytes());
+        int64[] paras #= d.nodesOfKind(NodeKind.PARAGRAPH());
         Assert.equals((int64) paras.count(), (int64) 1);
         Assert.isTrue(d.text(paras[0]).contains("Not a csv at all."));
 
@@ -60,26 +60,26 @@ public class ReaderTest {
             + "| name | score |\n"
             + "| ---- | ----- |\n"
             + "| ana  | 1.5   |\n";
-        Doc d = Reader.read("guide.md", md.toBytes());
-        int64[] secs = d.nodesOfKind(NodeKind.SECTION());
+        Doc d #= Reader.read("guide.md", md.toBytes());
+        int64[] secs #= d.nodesOfKind(NodeKind.SECTION());
         Assert.equals((int64) secs.count(), (int64) 2);
         Assert.isTrue(d.titleOf(secs[0]).equals("Guide"));
         Assert.isTrue(d.titleOf(secs[1]).equals("Steps"));
         // "Steps" nests under "Guide" (h2 under h1).
         Assert.equals(d.parentOf(secs[1]), secs[0]);
-        int64[] items = d.nodesOfKind(NodeKind.LIST_ITEM());
+        int64[] items #= d.nodesOfKind(NodeKind.LIST_ITEM());
         Assert.equals((int64) items.count(), (int64) 2);
         Assert.isTrue(d.text(items[0]).contains("first step"));
-        int64[] code = d.nodesOfKind(NodeKind.CODE_BLOCK());
+        int64[] code #= d.nodesOfKind(NodeKind.CODE_BLOCK());
         Assert.equals((int64) code.count(), (int64) 1);
         Assert.isTrue(d.text(code[0]).contains("cajeta build"));
-        int64[] tables = d.nodesOfKind(NodeKind.TABLE());
+        int64[] tables #= d.nodesOfKind(NodeKind.TABLE());
         Assert.equals((int64) tables.count(), (int64) 1);
         Assert.isTrue(d.tableHeader(tables[0], (int64) 0).equals("name"));
         Assert.isTrue(d.tableCell(tables[0], (int64) 0, (int64) 1)
             .equals("1.5"));
         // The heading markup is STRUCTURE, not literal '#' text.
-        int64[] paras = d.nodesOfKind(NodeKind.PARAGRAPH());
+        int64[] paras #= d.nodesOfKind(NodeKind.PARAGRAPH());
         Assert.isTrue(!d.text(paras[0]).contains("#"));
         return;
     }
@@ -113,9 +113,9 @@ public class ReaderTest {
             + "<footer>Copyright LEGALESE. All rights reserved. "
             + "Privacy. Terms.</footer>"
             + "</body></html>";
-        Doc d = Reader.read("notes.html", html.toBytes());
+        Doc d #= Reader.read("notes.html", html.toBytes());
         // Chrome NEVER appears in content.
-        String full = d.fullText();
+        String full #= d.fullText();
         Assert.isTrue(!full.contains("SPYWARE"));
         Assert.isTrue(!full.contains("margin"));
         Assert.isTrue(!full.contains("MEGA BRAND"));
@@ -123,19 +123,19 @@ public class ReaderTest {
         Assert.isTrue(!full.contains("NEWSLETTER"));
         Assert.isTrue(!full.contains("LEGALESE"));
         // The hierarchy survives: Methods nests under Field Notes.
-        int64[] secs = d.nodesOfKind(NodeKind.SECTION());
+        int64[] secs #= d.nodesOfKind(NodeKind.SECTION());
         Assert.equals((int64) secs.count(), (int64) 2);
         Assert.isTrue(d.titleOf(secs[0]).equals("Field Notes"));
         Assert.equals(d.parentOf(secs[1]), secs[0]);
         // Entities decode; the paragraph text is clean.
-        int64[] paras = d.nodesOfKind(NodeKind.PARAGRAPH());
+        int64[] paras #= d.nodesOfKind(NodeKind.PARAGRAPH());
         Assert.isTrue(d.text(paras[0]).contains("under & beyond"));
         // Structure: list, code, table.
         Assert.equals((int64) d.nodesOfKind(NodeKind.LIST_ITEM()).count(),
             (int64) 2);
-        int64[] code = d.nodesOfKind(NodeKind.CODE_BLOCK());
+        int64[] code #= d.nodesOfKind(NodeKind.CODE_BLOCK());
         Assert.isTrue(d.text(code[0]).contains("let x = 1;"));
-        int64[] tables = d.nodesOfKind(NodeKind.TABLE());
+        int64[] tables #= d.nodesOfKind(NodeKind.TABLE());
         Assert.isTrue(d.tableHeader(tables[0], (int64) 0).equals("run"));
         Assert.isTrue(d.tableCell(tables[0], (int64) 0, (int64) 1)
             .equals("3.5"));
@@ -152,7 +152,7 @@ public class ReaderTest {
             + "<base href=\"https://notes.example\"></head><body>"
             + "<p>See the <a href=\"/protocol\">standard protocol</a>.</p>"
             + "</body></html>";
-        Doc d = Reader.read("refs.html", html.toBytes());
+        Doc d #= Reader.read("refs.html", html.toBytes());
         Assert.equals(d.refCount(), (int64) 1);
         Assert.isTrue(d.refTargetAt((int64) 0).equals("/protocol"));
         Assert.isTrue(d.baseUriOf().equals("https://notes.example"));
@@ -162,7 +162,7 @@ public class ReaderTest {
         Assert.isTrue(hi > lo);
 
         String md = "Read [the guide](https://cajeta.dev/guide) first.\n";
-        Doc d2 = Reader.readAs("refs.md", md.toBytes(), "markdown");
+        Doc d2 #= Reader.readAs("refs.md", md.toBytes(), "markdown");
         Assert.equals(d2.refCount(), (int64) 1);
         Assert.isTrue(d2.refTargetAt((int64) 0)
             .equals("https://cajeta.dev/guide"));
@@ -174,8 +174,8 @@ public class ReaderTest {
     @Test
     public void csvAndJsonReuseCodec() {
         String csv = "name,score\nana,1.5\nben,2.5\n";
-        Doc d = Reader.read("data.csv", csv.toBytes());
-        int64[] tables = d.nodesOfKind(NodeKind.TABLE());
+        Doc d #= Reader.read("data.csv", csv.toBytes());
+        int64[] tables #= d.nodesOfKind(NodeKind.TABLE());
         Assert.equals((int64) tables.count(), (int64) 1);
         Assert.equals(d.tableRows(tables[0]), (int64) 2);
         Assert.isTrue(d.tableCell(tables[0], (int64) 1, (int64) 0)
@@ -183,14 +183,14 @@ public class ReaderTest {
 
         String json = "[{\"name\": \"ana\", \"score\": 1.5},"
             + "{\"name\": \"ben\", \"score\": 2.5}]";
-        Doc d2 = Reader.read("data.json", json.toBytes());
-        int64[] t2 = d2.nodesOfKind(NodeKind.TABLE());
+        Doc d2 #= Reader.read("data.json", json.toBytes());
+        int64[] t2 #= d2.nodesOfKind(NodeKind.TABLE());
         Assert.equals((int64) t2.count(), (int64) 1);
         Assert.isTrue(d2.tableHeader(t2[0], (int64) 1).equals("score"));
 
         String nested = "{\"a\": {\"b\": 1}, \"c\": \"x\"}";
-        Doc d3 = Reader.read("nested.json", nested.toBytes());
-        int64[] paras = d3.nodesOfKind(NodeKind.PARAGRAPH());
+        Doc d3 #= Reader.read("nested.json", nested.toBytes());
+        int64[] paras #= d3.nodesOfKind(NodeKind.PARAGRAPH());
         Assert.equals((int64) paras.count(), (int64) 2);
         Assert.isTrue(d3.text(paras[0]).contains("a.b: 1"));
         return;
@@ -204,7 +204,7 @@ public class ReaderTest {
         String ragged = "a,b\n1,2,3\n";
         boolean threw = false;
         try {
-            Doc d = Reader.readAs("ragged.csv", ragged.toBytes(), "csv");
+            Doc d #= Reader.readAs("ragged.csv", ragged.toBytes(), "csv");
         } catch (DocsException ex) { threw = true; }
         Assert.isTrue(threw);
 
@@ -212,7 +212,7 @@ public class ReaderTest {
         String badMd = "# T\n\n```\nnever closed";
         threw = false;
         try {
-            Doc d2 = Reader.readAs("bad.md", badMd.toBytes(), "markdown");
+            Doc d2 #= Reader.readAs("bad.md", badMd.toBytes(), "markdown");
         } catch (DocsException ex) { threw = true; }
         Assert.isTrue(threw);
 
@@ -222,14 +222,14 @@ public class ReaderTest {
         zip[6] = 1;                                     // crypto bit
         threw = false;
         try {
-            Doc d3 = Reader.read("locked.docx", zip);
+            Doc d3 #= Reader.read("locked.docx", zip);
         } catch (DocsException ex) { threw = true; }
         Assert.isTrue(threw);
         // A plain (unencrypted) zip names the MISSING PREREQUISITE.
         zip[6] = 0;
         threw = false;
         try {
-            Doc d4 = Reader.read("plain.docx", zip);
+            Doc d4 #= Reader.read("plain.docx", zip);
         } catch (DocsException ex) { threw = true; }
         Assert.isTrue(threw);
         return;
@@ -240,8 +240,8 @@ public class ReaderTest {
     @Test
     public void textPolicyHolds() {
         String txt = "The measure-\nment    held  fast.\n\nSecond para.\n";
-        Doc d = Reader.readAs("a.txt", txt.toBytes(), "text");
-        int64[] paras = d.nodesOfKind(NodeKind.PARAGRAPH());
+        Doc d #= Reader.readAs("a.txt", txt.toBytes(), "text");
+        int64[] paras #= d.nodesOfKind(NodeKind.PARAGRAPH());
         Assert.equals((int64) paras.count(), (int64) 2);
         Assert.isTrue(d.text(paras[0]).equals(
             "The measurement held fast.\n"));

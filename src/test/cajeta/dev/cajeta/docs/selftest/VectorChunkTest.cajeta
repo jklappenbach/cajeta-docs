@@ -22,7 +22,7 @@ public class VectorChunkTest {
     public VectorChunkTest() { return; }
 
     static #String[] corpus() {
-        String all = Fx.readText("docs_corpus.txt");
+        String all #= Fx.readText("docs_corpus.txt");
         // Split lines.
         int64 n = all.count();
         int64 lines = 0;
@@ -39,7 +39,7 @@ public class VectorChunkTest {
             while (eol < n && all.charAt((int32) eol) != 10) {
                 eol = eol + 1;
             }
-            out[li] = all.substring((int32) i, (int32) eol);
+            out[li] #= all.substring((int32) i, (int32) eol);
             li = li + 1;
             i = eol + 1;
         }
@@ -48,8 +48,8 @@ public class VectorChunkTest {
 
     static void assertMatrix(CsrMatrix m, String fixture, int64 rows,
                              int64 cols) {
-        Tensor<float64> want = Fx.load(fixture);
-        Tensor<float64> got = m.toDense();
+        Tensor<float64> want #= Fx.load(fixture);
+        Tensor<float64> got #= m.toDense();
         int64 t = 0;
         while (t < rows * cols) {
             Assert.isTrue(Fx.close(got.flatGet(t), want.flatGet(t),
@@ -63,11 +63,11 @@ public class VectorChunkTest {
     // 1.9.0 exactly; the vocabulary is sklearn's sorted one.
     @Test
     public void tfidfVariantsMatchSklearn() {
-        String[] docs = VectorChunkTest.corpus();
+        String[] docs #= VectorChunkTest.corpus();
         Vectorizer v = heap Vectorizer();
         v.fit(docs);
         // The vocabulary matches the oracle term-for-term.
-        String vocabText = Fx.readText("docs_vocab.txt");
+        String vocabText #= Fx.readText("docs_vocab.txt");
         int64 vi = 0;
         int64 pos = 0;
         while (pos < vocabText.count()) {
@@ -76,7 +76,7 @@ public class VectorChunkTest {
                    && vocabText.charAt((int32) eol) != 10) {
                 eol = eol + 1;
             }
-            String term = vocabText.substring((int32) pos, (int32) eol);
+            String term #= vocabText.substring((int32) pos, (int32) eol);
             Assert.isTrue(v.termAt(vi).equals(term));
             Assert.equals(v.indexOf(term), vi);
             vi = vi + 1;
@@ -126,19 +126,19 @@ public class VectorChunkTest {
     // persisted vectorizer reloads to identical indices and weights.
     @Test
     public void vocabularyIsFixedAndPersists() {
-        String[] docs = VectorChunkTest.corpus();
+        String[] docs #= VectorChunkTest.corpus();
         Vectorizer v = heap Vectorizer();
         v.fit(docs);
         int64 V = v.vocabSize();
         String[] unseen = heap String[1];
         unseen[0] = "the reactor telemetry surprised nobody quantumly";
-        CsrMatrix m = v.transform(unseen);
+        CsrMatrix m #= v.transform(unseen);
         Assert.equals(m.colCount(), V);                // width unchanged
         VectorChunkTest.assertMatrix(m, "docs_tfidf_unseen", (int64) 1, V);
         Assert.equals(v.indexOf("quantumly"), (int64) -1);
 
-        String state = v.saveState();
-        Vectorizer r = Vectorizer.load(state);
+        String state #= v.saveState();
+        Vectorizer r #= Vectorizer.load(state);
         Assert.equals(r.vocabSize(), V);
         int64 i = 0;
         while (i < V) {
@@ -177,14 +177,14 @@ public class VectorChunkTest {
     // or code block; repeated runs are identical; §10.5 heading paths.
     @Test
     public void chunkingRespectsStructure() {
-        Doc d = VectorChunkTest.structured();
+        Doc d #= VectorChunkTest.structured();
         Chunker c = heap Chunker();
         c.setStrategy("structure");
         c.setMaxChars((int64) 90);
-        ChunkList l1 = c.chunk(d);
+        ChunkList l1 #= c.chunk(d);
         // Atomic blocks stay whole: every chunk range either contains
         // the code block entirely or not at all.
-        int64[] code = d.nodesOfKind((int32) 7);
+        int64[] code #= d.nodesOfKind((int32) 7);
         int64 cLo = d.charStart(code[0]);
         int64 cHi = d.charEnd(code[0]);
         int64 i = 0;
@@ -205,7 +205,7 @@ public class VectorChunkTest {
         }
         Assert.isTrue(sawOversized);
         // Determinism (§10.7): a second run is identical.
-        ChunkList l2 = c.chunk(d);
+        ChunkList l2 #= c.chunk(d);
         Assert.equals(l2.count(), l1.count());
         i = 0;
         while (i < l1.count()) {
@@ -231,7 +231,7 @@ public class VectorChunkTest {
         Chunker hp = heap Chunker();
         hp.setStrategy("paragraph");
         hp.setHeadingPath(true);
-        ChunkList lh = hp.chunk(d);
+        ChunkList lh #= hp.chunk(d);
         Assert.isTrue(lh.text((int64) 0).contains("Alpha"));
         return;
     }
@@ -249,12 +249,12 @@ public class VectorChunkTest {
                 + " occupies about forty characters here.");
             i0 = i0 + 1;
         }
-        Doc d = b.build();
+        Doc d #= b.build();
         Chunker c = heap Chunker();
         c.setStrategy("fixed");
         c.setMaxChars((int64) 160);
         c.setOverlap((int64) 60);
-        ChunkList l = c.chunk(d);
+        ChunkList l #= c.chunk(d);
         Assert.isTrue(l.count() >= 2);
         // Some adjacent pair overlaps in char ranges.
         boolean overlapped = false;
@@ -276,22 +276,22 @@ public class VectorChunkTest {
             + "beyond any sensible chunk budget because it wants to be "
             + "split with explicit markers rather than silently "
             + "truncated by machinery that hides its own decisions.");
-        Doc d = b.build();
+        Doc d #= b.build();
         Chunker c = heap Chunker();
         c.setStrategy("structure");
         c.setMaxChars((int64) 60);
         c.setOversize("split");
-        ChunkList l = c.chunk(d);
+        ChunkList l #= c.chunk(d);
         Assert.isTrue(l.count() >= 2);
         Assert.isTrue(l.text((int64) 0).contains("[...]"));
         Assert.isTrue(l.text(l.count() - 1).contains("[...]"));
 
         DocBuilder b2 = heap DocBuilder("sentences");
         int64 p2 = b2.paragraph("One here. Two here. Three here.");
-        Doc d2 = b2.build();
+        Doc d2 #= b2.build();
         Chunker sc = heap Chunker();
         sc.setStrategy("sentence");
-        ChunkList sl = sc.chunk(d2);
+        ChunkList sl #= sc.chunk(d2);
         Assert.equals(sl.count(), (int64) 3);
         return;
     }

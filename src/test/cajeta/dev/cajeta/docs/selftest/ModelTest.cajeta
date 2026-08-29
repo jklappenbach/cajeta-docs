@@ -57,15 +57,15 @@ public class ModelTest {
     // parseCount stays 1 across every query.
     @Test
     public void oneParseServesEveryGranularity() {
-        Doc d = ModelTest.fixture();
+        Doc d #= ModelTest.fixture();
         Assert.equals(d.parseCount(), (int64) 1);
-        int64[] secs = d.nodesOfKind(NodeKind.SECTION());
-        int64[] paras = d.nodesOfKind(NodeKind.PARAGRAPH());
-        int64[] lists = d.nodesOfKind(NodeKind.LIST());
-        int64[] items = d.nodesOfKind(NodeKind.LIST_ITEM());
-        int64[] tables = d.nodesOfKind(NodeKind.TABLE());
-        int64[] code = d.nodesOfKind(NodeKind.CODE_BLOCK());
-        int64[] elems = d.nodesOfKind(NodeKind.ELEMENT());
+        int64[] secs #= d.nodesOfKind(NodeKind.SECTION());
+        int64[] paras #= d.nodesOfKind(NodeKind.PARAGRAPH());
+        int64[] lists #= d.nodesOfKind(NodeKind.LIST());
+        int64[] items #= d.nodesOfKind(NodeKind.LIST_ITEM());
+        int64[] tables #= d.nodesOfKind(NodeKind.TABLE());
+        int64[] code #= d.nodesOfKind(NodeKind.CODE_BLOCK());
+        int64[] elems #= d.nodesOfKind(NodeKind.ELEMENT());
         Assert.equals((int64) secs.count(), (int64) 2);
         Assert.equals((int64) paras.count(), (int64) 1);
         Assert.equals((int64) lists.count(), (int64) 1);
@@ -101,20 +101,20 @@ public class ModelTest {
         int64 q1 = b2.paragraph("Page one closes here.");
         b2.pageBreak();
         int64 q2 = b2.paragraph("Page two opens here.");
-        Doc d2 = b2.build();
+        Doc d2 #= b2.build();
         Assert.equals(d2.pageCount(), (int64) 2);
-        int64[] pg1 = d2.pagesOf(q1);
+        int64[] pg1 #= d2.pagesOf(q1);
         Assert.equals((int64) pg1.count(), (int64) 1);
         Assert.equals(pg1[0], (int64) 1);
-        int64[] pg2 = d2.pagesOf(q2);
+        int64[] pg2 #= d2.pagesOf(q2);
         Assert.equals(pg2[0], (int64) 2);
         // The DOCUMENT node spans the break: both pages in its view.
-        int64[] pgDoc = d2.pagesOf((int64) 0);
+        int64[] pgDoc #= d2.pagesOf((int64) 0);
         Assert.equals((int64) pgDoc.count(), (int64) 2);
         Assert.equals(pgDoc[0], (int64) 1);
         Assert.equals(pgDoc[1], (int64) 2);
         // A pageless document reports the level ABSENT (§2.6).
-        Doc plain = ModelTest.fixture();
+        Doc plain #= ModelTest.fixture();
         Assert.isTrue(!plain.hasPages());
         Assert.equals(plain.pageCount(), (int64) 0);
         Assert.equals((int64) plain.pagesOf((int64) 0).count(), (int64) 0);
@@ -124,11 +124,11 @@ public class ModelTest {
     // 1.1.3 + §13.1 — EVERY node type resolves full provenance.
     @Test
     public void everyNodeResolvesProvenance() {
-        Doc d = ModelTest.fixture();
+        Doc d #= ModelTest.fixture();
         int64 n = d.nodeCount();
         int64 nid = 0;
         while (nid < n) {
-            Provenance p = d.provenance(nid);
+            Provenance p #= d.provenance(nid);
             Assert.equals((int64) p.docHash.count(), (int64) 16);
             Assert.isTrue(p.sourceId.equals("fixtures/model.txt"));
             Assert.isTrue(p.charStart >= 0);
@@ -137,10 +137,10 @@ public class ModelTest {
             nid = nid + 1;
         }
         // Section paths accumulate: the table sits under "Data".
-        int64[] tables = d.nodesOfKind(NodeKind.TABLE());
+        int64[] tables #= d.nodesOfKind(NodeKind.TABLE());
         Assert.isTrue(d.provenance(tables[0]).sectionPath.equals("Data"));
         // Text slices are exact (§2.7).
-        int64[] paras = d.nodesOfKind(NodeKind.PARAGRAPH());
+        int64[] paras #= d.nodesOfKind(NodeKind.PARAGRAPH());
         Assert.isTrue(d.text(paras[0]).equals(
             "First paragraph on page one.\n"));
         return;
@@ -177,14 +177,14 @@ public class ModelTest {
     // 1.1.5 + §3 — elements are first-class nodes, not stripped text.
     @Test
     public void elementsAreFirstClass() {
-        Doc d = ModelTest.fixture();
-        int64[] elems = d.nodesOfKind(NodeKind.ELEMENT());
+        Doc d #= ModelTest.fixture();
+        int64[] elems #= d.nodesOfKind(NodeKind.ELEMENT());
         // image, equation, footnote, unknown — in document order.
         Assert.equals(d.elementKind(elems[0]), NodeKind.IMAGE());
         Assert.isTrue(d.elementCaption(elems[0]).equals("A diagram"));
         Assert.isTrue(d.elementAlt(elems[0]).equals(
             "diagram of the model"));
-        int8[] bytes = d.elementBytes(elems[0]);
+        int8[] bytes #= d.elementBytes(elems[0]);
         Assert.equals((int64) bytes.count(), (int64) 3);
         Assert.equals((int64) bytes[0], (int64) 80);
 
@@ -192,12 +192,12 @@ public class ModelTest {
         Assert.isTrue(d.elementSource(elems[1]).equals("E = mc^2"));
 
         Assert.equals(d.elementKind(elems[2]), NodeKind.FOOTNOTE());
-        int64[] paras = d.nodesOfKind(NodeKind.PARAGRAPH());
+        int64[] paras #= d.nodesOfKind(NodeKind.PARAGRAPH());
         Assert.equals(d.elementRefSite(elems[2]), paras[0]);   // linked
 
         // §3.6 — the uninterpreted element still has presence + position.
         Assert.equals(d.elementKind(elems[3]), NodeKind.UNKNOWN());
-        Provenance p = d.provenance(elems[3]);
+        Provenance p #= d.provenance(elems[3]);
         Assert.isTrue(p.charStart >= 0);
         return;
     }
@@ -206,8 +206,8 @@ public class ModelTest {
     // headers, cells — not whitespace-mangled prose.
     @Test
     public void tablesSurviveStructured() {
-        Doc d = ModelTest.fixture();
-        int64[] tables = d.nodesOfKind(NodeKind.TABLE());
+        Doc d #= ModelTest.fixture();
+        int64[] tables #= d.nodesOfKind(NodeKind.TABLE());
         int64 t = tables[0];
         Assert.equals(d.tableRows(t), (int64) 2);
         Assert.equals(d.tableCols(t), (int64) 2);
@@ -220,7 +220,7 @@ public class ModelTest {
 
         // §13.7 — round-trip to a nucleo frame: typed columns, exact
         // values. "name" is a string column; "score" parses numeric.
-        DynFrame f = d.tableToFrame(t);
+        DynFrame f #= d.tableToFrame(t);
         Assert.equals((int64) f.width(), (int64) 2);
         Assert.equals(f.rowsOf(), (int64) 2);
         Assert.isTrue(f.nameAt((int32) 0).equals("name"));
@@ -231,7 +231,7 @@ public class ModelTest {
 
         boolean threw = false;
         try {
-            String bad = d.tableCell(t, (int64) 5, (int64) 0);
+            String bad #= d.tableCell(t, (int64) 5, (int64) 0);
         } catch (DocsException ex) { threw = true; }
         Assert.isTrue(threw);
         return;

@@ -39,10 +39,10 @@ public final class CsvJsonReader {
             }
             int32 f = 0;
             while (f < fc) {
-                int8[] raw = r.field(f);
+                int8[] raw #= r.field(f);
                 StringBuilder sb = heap StringBuilder();
                 sb.appendBytes(raw, (int32) 0, (int32) raw.count());
-                String v = sb.toString();
+                String v #= sb.toString();
                 cells.add(#v);
                 f = f + 1;
             }
@@ -62,7 +62,7 @@ public final class CsvJsonReader {
         String[] bd = heap String[body * cols];
         int64 t = 0;
         while (t < body * cols) {
-            bd[t] = "" + cells.get((int32) (cols + t));
+            bd[t] #= "" + cells.get((int32) (cols + t));
             t = t + 1;
         }
         int64 nid = b.table(hdr, bd, body, cols);
@@ -72,7 +72,7 @@ public final class CsvJsonReader {
     public static #Doc readJson(String sourceId, int8[] bytes) {
         DocBuilder b = heap DocBuilder(sourceId);
         JsonReader jr = stack JsonReader(bytes, (int64) bytes.count());
-        JsonValue v = jr.readValue();
+        JsonValue v #= jr.readValue();
         if (v.kind() == JsonValue.ARRAY
             && CsvJsonReader.isFlatObjectArray(v)) {
             CsvJsonReader.arrayTable(b, v.array());
@@ -112,7 +112,7 @@ public final class CsvJsonReader {
         while (k < (int32) cols) {
             StringBuilder sb = heap StringBuilder();
             sb.appendBytes(first.keyAt(k), (int32) 0, first.keyLenAt(k));
-            hdr[k] = sb.toString();
+            hdr[k] #= sb.toString();
             k = k + 1;
         }
         int64 rows = (int64) a.count();
@@ -125,7 +125,7 @@ public final class CsvJsonReader {
                 JsonValue cell = o.get(hdr[k]);
                 if (cell == null) { bd[(int64) r * cols + (int64) k] = ""; }
                 else {
-                    bd[(int64) r * cols + (int64) k] =
+                    bd[(int64) r * cols + (int64) k] #=
                         CsvJsonReader.scalar(cell);
                 }
                 k = k + 1;
@@ -143,7 +143,7 @@ public final class CsvJsonReader {
             while (k < o.count()) {
                 StringBuilder sb = heap StringBuilder();
                 sb.appendBytes(o.keyAt(k), (int32) 0, o.keyLenAt(k));
-                String key = sb.toString();
+                String key #= sb.toString();
                 String sub = key;
                 if (path.count() > 0) { sub = path + "." + key; }
                 CsvJsonReader.walk(b, o.valueAt(k), sub);

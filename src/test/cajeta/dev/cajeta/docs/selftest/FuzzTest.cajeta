@@ -45,7 +45,7 @@ public class FuzzTest {
         // test by crashing the binary.
         boolean ok = false;
         try {
-            Doc d = Reader.read(name, bytes);
+            Doc d #= Reader.read(name, bytes);
             ok = d.parseCount() == (int64) 1;
         } catch (RecoverableException ex) {
             ok = true;
@@ -76,12 +76,12 @@ public class FuzzTest {
         Generator g = heap Generator((uint64) 424242);
         int64 iter = 0;
         while (iter < 200) {
-            Tensor<int64> len = g.integers((int64) 0, (int64) 2048,
+            Tensor<int64> len #= g.integers((int64) 0, (int64) 2048,
                                            (int64) 1);
             int64 n = len.flatGet((int64) 0);
             int8[] buf = heap int8[n];
             if (n > 0) {
-                Tensor<int64> vals = g.integers((int64) 0, (int64) 256, n);
+                Tensor<int64> vals #= g.integers((int64) 0, (int64) 256, n);
                 int64 t = 0;
                 while (t < n) {
                     buf[t] = (int8) vals.flatGet(t);
@@ -101,9 +101,9 @@ public class FuzzTest {
         Generator g = heap Generator((uint64) 777);
         int64 iter = 0;
         while (iter < 150) {
-            int8[] seed = FuzzTest.seedDoc(iter % 5);
+            int8[] seed #= FuzzTest.seedDoc(iter % 5);
             int64 n = (int64) seed.count();
-            Tensor<int64> mode = g.integers((int64) 0, (int64) 3,
+            Tensor<int64> mode #= g.integers((int64) 0, (int64) 3,
                                             (int64) 1);
             int64 m = mode.flatGet((int64) 0);
             int8[] buf;
@@ -112,7 +112,7 @@ public class FuzzTest {
                 buf = heap int8[n];
                 int64 t = 0;
                 while (t < n) { buf[t] = seed[t]; t = t + 1; }
-                Tensor<int64> pos = g.integers((int64) 0, n, (int64) 4);
+                Tensor<int64> pos #= g.integers((int64) 0, n, (int64) 4);
                 t = 0;
                 while (t < 4) {
                     int64 p = pos.flatGet(t);
@@ -121,7 +121,7 @@ public class FuzzTest {
                 }
             } else if (m == 1 && n > 1) {
                 // Truncation.
-                Tensor<int64> cut = g.integers((int64) 1, n, (int64) 1);
+                Tensor<int64> cut #= g.integers((int64) 1, n, (int64) 1);
                 int64 c = cut.flatGet((int64) 0);
                 buf = heap int8[c];
                 int64 t = 0;

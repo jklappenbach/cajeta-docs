@@ -110,7 +110,7 @@ public final class Chunker {
                 a = a + 1;
             }
         } else if (this.strategy.equals("section")) {
-            int64[] secs = d.nodesOfKind((int32) 1);
+            int64[] secs #= d.nodesOfKind((int32) 1);
             int64 s = 0;
             while (s < (int64) secs.count()) {
                 this.emitRange(out, d, d.charStart(secs[s]),
@@ -126,8 +126,8 @@ public final class Chunker {
                 if (kk == 6 || kk == 7) {
                     this.emit(out, d, id, id, false);   // atomic
                 } else {
-                    String text = d.text(id);
-                    SentenceList sl = g.segment(text);
+                    String text #= d.text(id);
+                    SentenceList sl #= g.segment(text);
                     int64 base = d.charStart(id);
                     int64 si = 0;
                     while (si < sl.count()) {
@@ -145,7 +145,7 @@ public final class Chunker {
             int32 a = 0;
             while (a < atoms.count()) {
                 int64 firstA = atoms.get(a).value();
-                String curPath = d.sectionPath(firstA);
+                String curPath #= d.sectionPath(firstA);
                 int64 size = 0;
                 int32 startIx = a;
                 while (a < atoms.count()) {
@@ -153,7 +153,7 @@ public final class Chunker {
                     int64 len = d.charEnd(id) - d.charStart(id);
                     boolean sameSec = true;
                     if (bySection) {
-                        sameSec = d.sectionPath(id).equals(curPath);
+                        sameSec #= d.sectionPath(id).equals(curPath);
                     }
                     if (a == startIx) {
                         // First atom always joins; oversize handled at
@@ -206,7 +206,7 @@ public final class Chunker {
 
     void emitRange(Out out, Doc d, int64 lo, int64 hi, String path,
                    boolean over) {
-        String body = d.fullText().substring((int32) lo, (int32) hi);
+        String body #= d.fullText().substring((int32) lo, (int32) hi);
         String text = body;
         if (this.headingPath && path.count() > 0) {
             text = path + "\n" + body;
@@ -218,12 +218,12 @@ public final class Chunker {
     void emitSplit(Out out, Doc d, int64 nid) {
         int64 lo = d.charStart(nid);
         int64 hi = d.charEnd(nid);
-        String path = d.sectionPath(nid);
+        String path #= d.sectionPath(nid);
         int64 cur = lo;
         while (cur < hi) {
             int64 end = cur + this.maxChars;
             if (end > hi) { end = hi; }
-            String body = d.fullText().substring((int32) cur, (int32) end);
+            String body #= d.fullText().substring((int32) cur, (int32) end);
             String text = body;
             if (end < hi) { text = text + " [...]"; }
             if (cur > lo) { text = "[...] " + text; }

@@ -36,7 +36,7 @@ public final class Segmenter {
         while (i < n) {
             int64 lo = i;
             while (i < n && all.charAt((int32) i) != 32) { i = i + 1; }
-            String w = all.substring((int32) lo, (int32) i);
+            String w #= all.substring((int32) lo, (int32) i);
             s.add(#w);
             i = i + 1;
         }
@@ -159,7 +159,7 @@ public final class Segmenter {
             lo = lo - 1;
         }
         if (lo == dot) { return false; }
-        String w = text.substring((int32) lo, (int32) dot).toLowerCase();
+        String w #= text.substring((int32) lo, (int32) dot).toLowerCase();
         return this.abbrevs.contains(w);
     }
 

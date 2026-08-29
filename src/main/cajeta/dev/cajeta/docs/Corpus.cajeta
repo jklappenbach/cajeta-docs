@@ -37,7 +37,7 @@ public final class Corpus {
         // holding live Path objects across the readers' try/catch
         // unwinding corrupts the drop chain (the same defect family as
         // owned-null-local-drop-crash; registered).
-        ArrayList<String> files = this.listFiles(dir);
+        ArrayList<String> files #= this.listFiles(dir);
         int64 ok = 0;
         int32 i = 0;
         while (i < files.count()) {
@@ -48,14 +48,14 @@ public final class Corpus {
     }
 
     #ArrayList<String> listFiles(String dir) {
-        Path root = Path.of(dir);
-        ArrayList<Path> entries = root.list();
+        Path root #= Path.of(dir);
+        ArrayList<Path> entries #= root.list();
         ArrayList<String> files = heap ArrayList<String>();
         int32 i = 0;
         while (i < entries.count()) {
             Path p = entries.get(i);
             if (p.isFile()) {
-                String id = "" + p.toString();
+                String id #= "" + p.toString();
                 files.add(#id);
             }
             i = i + 1;
@@ -84,7 +84,7 @@ public final class Corpus {
     // owned-null-local-drop-crash). Here the whole frame unwinds.
     void readAndRegister(String path) {
         int8[] bytes = File.readAllBytes(path);
-        Doc d = Reader.read(path, bytes);
+        Doc d #= Reader.read(path, bytes);
         int64 ver = this.set.register(#d);
         return;
     }

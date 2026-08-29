@@ -38,7 +38,7 @@ public final class Subword {
 
     /** A WordPiece tokenizer over a newline-separated vocabulary. */
     public static #Subword wordpiece(String vocabText) {
-        HashMap<String, Int64> v = Subword.parseVocab(vocabText);
+        HashMap<String, Int64> v #= Subword.parseVocab(vocabText);
         String[] e = heap String[0];
         String[] e2 = heap String[0];
         Subword s = heap Subword(true, #v, #e, #e2);
@@ -47,7 +47,7 @@ public final class Subword {
 
     /** A BPE tokenizer: vocabulary + `a b` merge lines in priority order. */
     public static #Subword bpe(String vocabText, String mergesText) {
-        HashMap<String, Int64> v = Subword.parseVocab(vocabText);
+        HashMap<String, Int64> v #= Subword.parseVocab(vocabText);
         ArrayList<String> la = heap ArrayList<String>();
         ArrayList<String> lb = heap ArrayList<String>();
         int64 n = mergesText.count();
@@ -58,11 +58,11 @@ public final class Subword {
                 eol = eol + 1;
             }
             if (eol > i) {
-                String line = mergesText.substring((int32) i, (int32) eol);
+                String line #= mergesText.substring((int32) i, (int32) eol);
                 int64 sp = line.indexOf(" ");
                 if (sp > 0) {
-                    String a = line.substring((int32) 0, (int32) sp);
-                    String b = line.substring((int32) (sp + 1),
+                    String a #= line.substring((int32) 0, (int32) sp);
+                    String b #= line.substring((int32) (sp + 1),
                                               (int32) line.count());
                     la.add(#a);
                     lb.add(#b);
@@ -98,7 +98,7 @@ public final class Subword {
                 hi = hi - 1;
             }
             if (hi > i) {
-                String tok = text.substring((int32) i, (int32) hi);
+                String tok #= text.substring((int32) i, (int32) hi);
                 v.put(#tok, Int64.of(ix));
                 ix = ix + 1;
             }
@@ -125,7 +125,7 @@ public final class Subword {
     }
 
     int64 run(String text, ArrayList<String> out) {
-        String low = text.toLowerCase();
+        String low #= text.toLowerCase();
         int64 n = low.count();
         int64 count = 0;
         int64 i = 0;
@@ -175,7 +175,7 @@ public final class Subword {
             int64 end = hi;
             int64 found = -1;
             while (end > start) {
-                String sub = low.substring((int32) start, (int32) end);
+                String sub #= low.substring((int32) start, (int32) end);
                 String probe = sub;
                 if (start > lo) { probe = "##" + sub; }
                 if (this.vocab.get(probe) != null) {
@@ -195,7 +195,7 @@ public final class Subword {
                 // partial pieces (BERT semantics).
                 if (out != null) {
                     while (emitted > 0) {
-                        String dropped = out.removeAt(out.count() - 1);
+                        String dropped #= out.removeAt(out.count() - 1);
                         emitted = emitted - 1;
                     }
                     String u = "[UNK]";
@@ -215,7 +215,7 @@ public final class Subword {
         ArrayList<String> syms = heap ArrayList<String>();
         int64 i = lo;
         while (i < hi) {
-            String one = low.substring((int32) i, (int32) (i + 1));
+            String one #= low.substring((int32) i, (int32) (i + 1));
             syms.add(#one);
             i = i + 1;
         }
@@ -245,8 +245,8 @@ public final class Subword {
             if (bestRule >= 0) {
                 String merged = this.mergeA[bestRule]
                     + this.mergeB[bestRule];
-                String dropped1 = syms.removeAt(bestPos);
-                String dropped2 = syms.removeAt(bestPos);
+                String dropped1 #= syms.removeAt(bestPos);
+                String dropped2 #= syms.removeAt(bestPos);
                 syms.insert(bestPos, #merged);
                 changed = true;
             }

@@ -79,11 +79,11 @@ public final class Vectorizer {
         ArrayList<String> order = heap ArrayList<String>();
         int64 d = 0;
         while (d < n) {
-            TokenList toks = Vectorizer.skTokens(corpus[d]);
+            TokenList toks #= Vectorizer.skTokens(corpus[d]);
             HashMap<String, Int64> seen = heap HashMap<String, Int64>();
             int64 t = 0;
             while (t < toks.count()) {
-                String term = toks.term(t);
+                String term #= toks.term(t);
                 if (seen.get(term) == null) {
                     String k1 = "" + term;
                     seen.put(#k1, Int64.of((int64) 1));
@@ -187,10 +187,10 @@ public final class Vectorizer {
         int64 d = 0;
         while (d < rows) {
             float64[] rowCounts = heap float64[v];
-            TokenList toks = Vectorizer.skTokens(docs[d]);
+            TokenList toks #= Vectorizer.skTokens(docs[d]);
             int64 t = 0;
             while (t < toks.count()) {
-                int64 ix = this.indexOf(toks.term(t));
+                int64 ix #= this.indexOf(toks.term(t));
                 if (ix >= 0) { rowCounts[ix] = rowCounts[ix] + 1.0; }
                 t = t + 1;
             }
@@ -306,15 +306,15 @@ public final class Vectorizer {
             while (eol < n && state.charAt((int32) eol) != 10) {
                 eol = eol + 1;
             }
-            String line = state.substring((int32) i, (int32) eol);
+            String line #= state.substring((int32) i, (int32) eol);
             if (lineNo == 0) {
                 if (!line.equals("vectorizer1")) {
                     throw heap DocsException("Vectorizer.load: bad header");
                 }
             } else if (lineNo >= 1 && lineNo <= 5) {
                 int64 sp = line.indexOf(" ");
-                String key = line.substring((int32) 0, (int32) sp);
-                String val = line.substring((int32) (sp + 1),
+                String key #= line.substring((int32) 0, (int32) sp);
+                String val #= line.substring((int32) (sp + 1),
                                             (int32) line.count());
                 if (key.equals("smooth")) {
                     v.smoothIdf = val.equals("1");
@@ -329,8 +329,8 @@ public final class Vectorizer {
                 }
             } else if (line.count() > 0) {
                 int64 sp = line.indexOf(" ");
-                String term = line.substring((int32) 0, (int32) sp);
-                String dfv = line.substring((int32) (sp + 1),
+                String term #= line.substring((int32) 0, (int32) sp);
+                String dfv #= line.substring((int32) (sp + 1),
                                             (int32) line.count());
                 terms.add(#term);
                 dfs.add(Int64.of(Vectorizer.parseI(dfv)));
@@ -370,7 +370,7 @@ public final class Vectorizer {
 
     /** sklearn's token rule: lowercase `\\w\\w+` runs. */
     static #TokenList skTokens(String text) {
-        String low = text.toLowerCase();
+        String low #= text.toLowerCase();
         ArrayList<String> terms = heap ArrayList<String>();
         ArrayList<Int64> los = heap ArrayList<Int64>();
         ArrayList<Int64> his = heap ArrayList<Int64>();
@@ -385,7 +385,7 @@ public final class Vectorizer {
                 i = i + 1;
             }
             if (i - lo >= 2) {                          // sklearn: ≥ 2
-                String term = low.substring((int32) lo, (int32) i);
+                String term #= low.substring((int32) lo, (int32) i);
                 terms.add(#term);
                 los.add(Int64.of(lo));
                 his.add(Int64.of(i));

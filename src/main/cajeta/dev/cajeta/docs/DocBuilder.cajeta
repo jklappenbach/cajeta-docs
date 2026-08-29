@@ -154,7 +154,7 @@ public final class DocBuilder {
             throw heap DocsException("DocBuilder: no open section");
         }
         this.patchEnd(nid);
-        Int64 popped = this.openStack.removeAt(this.openStack.count() - 1);
+        Int64 popped #= this.openStack.removeAt(this.openStack.count() - 1);
         return;
     }
 
@@ -188,7 +188,7 @@ public final class DocBuilder {
             throw heap DocsException("DocBuilder: no open paragraph");
         }
         this.patchEnd(nid);
-        Int64 popped = this.openStack.removeAt(this.openStack.count() - 1);
+        Int64 popped #= this.openStack.removeAt(this.openStack.count() - 1);
         return;
     }
 
@@ -226,7 +226,7 @@ public final class DocBuilder {
             throw heap DocsException("DocBuilder: no open list");
         }
         this.patchEnd(nid);
-        Int64 popped = this.openStack.removeAt(this.openStack.count() - 1);
+        Int64 popped #= this.openStack.removeAt(this.openStack.count() - 1);
         return;
     }
 
@@ -409,7 +409,7 @@ public final class DocBuilder {
         while (this.openStack.count() > 1) {
             int64 nid = this.top();
             this.patchEnd(nid);
-            Int64 popped = this.openStack.removeAt(
+            Int64 popped #= this.openStack.removeAt(
                 this.openStack.count() - 1);
         }
         this.patchEnd((int64) 0);
@@ -421,7 +421,7 @@ public final class DocBuilder {
             sb.append(this.parts.get(t));
             t = t + 1;
         }
-        String buf = sb.toString();
+        String buf #= sb.toString();
         // FNV-1a 64 over the bytes.
         uint64 h = (uint64) 14695981039346656037;
         int64 n = buf.count();
@@ -433,7 +433,7 @@ public final class DocBuilder {
             h = h * (uint64) 1099511628211;
             b = b + 1;
         }
-        String hex = DocBuilder.hex64(h);
+        String hex #= DocBuilder.hex64(h);
 
         int64 nn = (int64) this.kind.count();
         int32[] kk = heap int32[nn];

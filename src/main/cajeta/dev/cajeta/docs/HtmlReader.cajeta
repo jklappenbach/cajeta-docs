@@ -83,7 +83,7 @@ public final class HtmlReader {
                            && HtmlReader.isNameChar(bytes[nameHi])) {
                         nameHi = nameHi + 1;
                     }
-                    String tag = HtmlReader.lowerSlice(bytes, nameLo,
+                    String tag #= HtmlReader.lowerSlice(bytes, nameLo,
                                                        nameHi);
                     if (!closing && (tag.equals("script")
                         || tag.equals("style") || tag.equals("nav")
@@ -112,7 +112,7 @@ public final class HtmlReader {
                                    && secLevels.get(secLevels.count() - 1)
                                       .value() >= lvl) {
                                 b.endSection();
-                                Int64 pp = secLevels.removeAt(
+                                Int64 pp #= secLevels.removeAt(
                                     secLevels.count() - 1);
                             }
                             int64 nid = b.beginSection(
@@ -126,7 +126,7 @@ public final class HtmlReader {
                             b.setMetaTitle(HtmlReader.collapse(
                                 titleBuf.toString()));
                         } else if (!closing && tag.equals("base")) {
-                            String href = HtmlReader.attr(bytes, nameHi,
+                            String href #= HtmlReader.attr(bytes, nameHi,
                                 tagEnd, "href");
                             if (href.count() > 0) { b.setBaseUri(href); }
                         } else if (!closing && tag.equals("pre")) {
@@ -136,7 +136,7 @@ public final class HtmlReader {
                             pre = heap StringBuilder();
                         } else if (closing && tag.equals("pre")) {
                             if (inPre) {
-                                int64 nid = b.codeBlock(pre.toString());
+                                int64 nid #= b.codeBlock(pre.toString());
                                 inPre = false;
                             }
                         } else if (!closing && (tag.equals("ul")
@@ -181,7 +181,7 @@ public final class HtmlReader {
                             StringBuilder ct = heap StringBuilder();
                             i = HtmlReader.textUntilClose(bytes,
                                 tagEnd + 1, n, tag, ct);
-                            String cv = HtmlReader.collapse(ct.toString());
+                            String cv #= HtmlReader.collapse(ct.toString());
                             tCells.add(#cv);
                             if (tRowLens.count() > 0) {
                                 int64 cur = tRowLens.get(
@@ -191,7 +191,7 @@ public final class HtmlReader {
                             }
                             tagEnd = i - 1;
                         } else if (!closing && tag.equals("a")) {
-                            String href = HtmlReader.attr(bytes, nameHi,
+                            String href #= HtmlReader.attr(bytes, nameHi,
                                 tagEnd, "href");
                             if (href.count() > 0) {
                                 anchorHrefs.add(#href);
@@ -201,18 +201,18 @@ public final class HtmlReader {
                             }
                         } else if (closing && tag.equals("a")) {
                             if (anchorHrefs.count() > 0) {
-                                String h = anchorHrefs.removeAt(
+                                String h #= anchorHrefs.removeAt(
                                     anchorHrefs.count() - 1);
-                                Int64 st = anchorStarts.removeAt(
+                                Int64 st #= anchorStarts.removeAt(
                                     anchorStarts.count() - 1);
                                 b.reference(h, st.value(),
                                     b.currentOffset()
                                     + (int64) para.count());
                             }
                         } else if (!closing && tag.equals("img")) {
-                            String alt = HtmlReader.attr(bytes, nameHi,
+                            String alt #= HtmlReader.attr(bytes, nameHi,
                                 tagEnd, "alt");
-                            String src = HtmlReader.attr(bytes, nameHi,
+                            String src #= HtmlReader.attr(bytes, nameHi,
                                 tagEnd, "src");
                             int64 nid = b.image(null, alt, null);
                             if (src.count() > 0) {
@@ -271,13 +271,13 @@ public final class HtmlReader {
         if (inList) { b.endList(); }
         while (secLevels.count() > 0) {
             b.endSection();
-            Int64 popped = secLevels.removeAt(secLevels.count() - 1);
+            Int64 popped #= secLevels.removeAt(secLevels.count() - 1);
         }
         return b.build();
     }
 
     static void flushPara(DocBuilder b, StringBuilder para) {
-        String s = HtmlReader.collapse(para.toString());
+        String s #= HtmlReader.collapse(para.toString());
         if (s.count() > 0) {
             int64 nid = b.paragraph(s);
         }
@@ -297,7 +297,7 @@ public final class HtmlReader {
                     while (hi < n && HtmlReader.isNameChar(bytes[hi])) {
                         hi = hi + 1;
                     }
-                    String name = HtmlReader.lowerSlice(bytes, lo, hi);
+                    String name #= HtmlReader.lowerSlice(bytes, lo, hi);
                     // Skip to '>'.
                     while (hi < n && bytes[hi] != 62) { hi = hi + 1; }
                     if (name.equals(tag)) {
@@ -335,7 +335,7 @@ public final class HtmlReader {
             out.append("&");
             return 1;
         }
-        String name = HtmlReader.lowerSlice(bytes, i + 1, semi);
+        String name #= HtmlReader.lowerSlice(bytes, i + 1, semi);
         if (name.equals("amp")) { out.append("&"); }
         else if (name.equals("lt")) { out.append("<"); }
         else if (name.equals("gt")) { out.append(">"); }
@@ -373,7 +373,7 @@ public final class HtmlReader {
             while (i < hi && HtmlReader.isNameChar(bytes[i])) {
                 i = i + 1;
             }
-            String name = HtmlReader.lowerSlice(bytes, nameLo, i);
+            String name #= HtmlReader.lowerSlice(bytes, nameLo, i);
             while (i < hi && (bytes[i] == 32 || bytes[i] == 9)) {
                 i = i + 1;
             }
@@ -434,7 +434,7 @@ public final class HtmlReader {
             c = 0;
             while (c < cols) {
                 if (pos < (int64) cells.count()) {
-                    bd[r * cols + c] = "" + cells.get((int32) pos);
+                    bd[r * cols + c] #= "" + cells.get((int32) pos);
                 } else { bd[r * cols + c] = ""; }
                 pos = pos + 1;
                 c = c + 1;
@@ -466,7 +466,7 @@ public final class HtmlReader {
             }
             i = i + 1;
         }
-        String r = out.toString();
+        String r #= out.toString();
         int64 hi = r.count();
         while (hi > 0 && r.charAt((int32) (hi - 1)) == 32) {
             hi = hi - 1;

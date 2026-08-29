@@ -31,7 +31,7 @@ public final class DocSet {
      * is identical (dedupe, §6.3).
      */
     public int64 register(#Doc d) {
-        String key = d.source();
+        String key #= d.source();
         Int64 prior = this.latest.get(key);
         if (prior != null) {
             Doc old = this.docs.get((int32) prior.value());
@@ -44,7 +44,7 @@ public final class DocSet {
         } else {
             d.setVersion((int64) 1);
         }
-        String key2 = d.source();
+        String key2 #= d.source();
         int64 ver = d.docVersion();
         int64 ix = (int64) this.docs.count();
         this.docs.add(#d);

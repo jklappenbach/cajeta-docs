@@ -14,7 +14,7 @@ public final class Reader {
 
     /** Sniff and read (§4.1). */
     public static #Doc read(String sourceId, int8[] bytes) {
-        String fmt = Sniffer.sniff(bytes);
+        String fmt #= Sniffer.sniff(bytes);
         return Reader.readAs(sourceId, bytes, fmt);
     }
 

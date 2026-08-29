@@ -50,7 +50,7 @@ public final class Analyzer {
         this.mode = "word";
         this.delims = "";
         this.stopwordsOn = true;
-        this.stops = Analyzer.defaultStops();
+        this.stops #= Analyzer.defaultStops();
         return;
     }
 
@@ -116,19 +116,19 @@ public final class Analyzer {
     /** Normalize only (the §7 step alone). */
     public #String normalize(String text) {
         String cur = "" + text;
-        if (this.form.equals("nfc")) { cur = cur.nfc(); }
-        else if (this.form.equals("nfd")) { cur = cur.nfd(); }
-        else if (this.form.equals("nfkc")) { cur = cur.nfkc(); }
-        else if (this.form.equals("nfkd")) { cur = cur.nfkd(); }
-        if (this.stripIgn) { cur = cur.stripDefaultIgnorables(); }
-        if (this.fold) { cur = cur.caseFold(); }
+        if (this.form.equals("nfc")) { cur #= cur.nfc(); }
+        else if (this.form.equals("nfd")) { cur #= cur.nfd(); }
+        else if (this.form.equals("nfkc")) { cur #= cur.nfkc(); }
+        else if (this.form.equals("nfkd")) { cur #= cur.nfkd(); }
+        if (this.stripIgn) { cur #= cur.stripDefaultIgnorables(); }
+        if (this.fold) { cur #= cur.caseFold(); }
         return #cur;
     }
 
     /** The full chain: normalize → tokenize → stopwords (§8.6:
      *  deterministic — same text, same result, at ingest or query). */
     public #TokenList analyze(String text) {
-        String norm = this.normalize(text);
+        String norm #= this.normalize(text);
         ArrayList<String> terms = heap ArrayList<String>();
         ArrayList<Int64> los = heap ArrayList<Int64>();
         ArrayList<Int64> his = heap ArrayList<Int64>();
@@ -152,7 +152,7 @@ public final class Analyzer {
                 sb.appendBytes(one, (int32) 0, (int32) 1);
                 t = t + 1;
             }
-            String term = sb.toString();
+            String term #= sb.toString();
             boolean keep = true;
             if (this.stopwordsOn && this.stops.contains(term)) {
                 keep = false;
@@ -196,7 +196,7 @@ public final class Analyzer {
                     sb.append(tokens.term(s + j));
                     j = j + 1;
                 }
-                String g = sb.toString();
+                String g #= sb.toString();
                 out.add(#g);
                 s = s + 1;
             }
@@ -245,7 +245,7 @@ public final class Analyzer {
         while (i < n) {
             int64 lo = i;
             while (i < n && all.charAt((int32) i) != 32) { i = i + 1; }
-            String w = all.substring((int32) lo, (int32) i);
+            String w #= all.substring((int32) lo, (int32) i);
             s.add(#w);
             i = i + 1;
         }

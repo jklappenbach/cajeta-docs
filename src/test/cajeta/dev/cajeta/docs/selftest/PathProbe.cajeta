@@ -17,15 +17,15 @@ public class PathProbe {
     public void listWorks() {
         String dir = Fx.root() + "/corpus-tmp";
         String f = dir + "/probe.txt";
-        int8[] b = "probe\n".toBytes();
+        int8[] b #= "probe\n".toBytes();
         File.writeAllBytes(f, b, (int32) b.count());
-        ArrayList<Path> entries = Path.of(dir).list();
+        ArrayList<Path> entries #= Path.of(dir).list();
         Assert.isTrue(entries.count() >= 1);
         int32 i = 0;
         while (i < entries.count()) {
             Path p = entries.get(i);
             if (p.isFile()) {
-                String id = p.toString();
+                String id #= p.toString();
                 Assert.isTrue(id.count() > 0);
             }
             i = i + 1;
@@ -37,10 +37,10 @@ public class PathProbe {
     public void parseLoopWithoutRegistry() {
         String dir = Fx.root() + "/corpus-tmp";
         String f1 = dir + "/a.md";
-        int8[] b1 = "# Alpha\n\nBody text here.\n".toBytes();
+        int8[] b1 #= "# Alpha\n\nBody text here.\n".toBytes();
         File.writeAllBytes(f1, b1, (int32) b1.count());
         String f2 = dir + "/c.txt";
-        int8[] b2 = "Plain closing text.\n".toBytes();
+        int8[] b2 #= "Plain closing text.\n".toBytes();
         File.writeAllBytes(f2, b2, (int32) b2.count());
         int64 n = 0;
         int64 iter = 0;
@@ -48,7 +48,7 @@ public class PathProbe {
             String path = f1;
             if (iter == 1) { path = f2; }
             int8[] bytes = File.readAllBytes(path);
-            Doc d = Reader.read(path, bytes);
+            Doc d #= Reader.read(path, bytes);
             n = n + d.nodeCount();
             iter = iter + 1;
         }
@@ -67,7 +67,7 @@ public class PathProbe {
             String path = f1;
             if (iter == 1) { path = f2; }
             int8[] bytes = File.readAllBytes(path);
-            Doc d = Reader.read(path, bytes);
+            Doc d #= Reader.read(path, bytes);
             int64 ver = set.register(#d);
             iter = iter + 1;
         }

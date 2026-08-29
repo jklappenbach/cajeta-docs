@@ -51,7 +51,7 @@ public class CorpusTest {
     }
 
     static void write(String path, String content) {
-        int8[] b = content.toBytes();
+        int8[] b #= content.toBytes();
         File.writeAllBytes(path, b, (int32) b.count());
         return;
     }

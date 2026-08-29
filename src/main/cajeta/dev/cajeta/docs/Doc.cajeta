@@ -495,7 +495,7 @@ public final class Doc {
                         this.tblCells[lo + (r + 1) * cols + c]);
                     r = r + 1;
                 }
-                dcols[c] = DynCol.ofF64(
+                dcols[c] #= DynCol.ofF64(
                     Column.of<float64>(vals));
             } else {
                 tags[c] = 11;
@@ -505,7 +505,7 @@ public final class Doc {
                     vals[r] = "" + this.tblCells[lo + (r + 1) * cols + c];
                     r = r + 1;
                 }
-                dcols[c] = DynCol.ofStr(
+                dcols[c] #= DynCol.ofStr(
                     StringColumn.of(vals));
             }
             c = c + 1;

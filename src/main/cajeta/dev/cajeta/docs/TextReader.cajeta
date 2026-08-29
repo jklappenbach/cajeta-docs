@@ -36,7 +36,7 @@ public final class TextReader {
             }
             if (blank) {
                 if (!para.isEmpty()) {
-                    int64 nid = b.paragraph(para.toString());
+                    int64 nid #= b.paragraph(para.toString());
                     para = heap StringBuilder();
                     lastSpace = true;
                     pendingHyphen = false;
@@ -89,7 +89,7 @@ public final class TextReader {
             i = eol + 1;
         }
         if (!para.isEmpty()) {
-            int64 nid = b.paragraph(para.toString());
+            int64 nid #= b.paragraph(para.toString());
         }
         return b.build();
     }
