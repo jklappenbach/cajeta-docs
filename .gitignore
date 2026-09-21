@@ -5,3 +5,6 @@ tools/fixtures/corpus-tmp/*
 
 # Compiler cache — bitcode and prebuilt archives, regenerated on every build.
 **/.cajeta/cache/
+
+# Repo-local scratch: downloaded toolchains, gate logs.
+tmp/
