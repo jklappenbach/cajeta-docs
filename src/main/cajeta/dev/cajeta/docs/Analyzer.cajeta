@@ -113,15 +113,31 @@ public final class Analyzer {
         return;
     }
 
-    /** Normalize only (the §7 step alone). */
+    /**
+     * A staked copy of `s`, safe to outlive whatever `s` is a window
+     * over: `substring` stakes the root buffer, where the normalization
+     * fast paths hand back a bare borrow.
+     */
+    static #String staked(String s) {
+        String out #= s.substring(0, s.byteLength());
+        return #out;
+    }
+
+    /**
+     * Normalize only (the §7 step alone). Each stdlib step hands back a
+     * zero-copy BORROW over its receiver when it changes nothing, so
+     * every result is restaked before the receiver is dropped.
+     */
     public #String normalize(String text) {
         String cur = "" + text;
-        if (this.form.equals("nfc")) { cur #= cur.nfc(); }
-        else if (this.form.equals("nfd")) { cur #= cur.nfd(); }
-        else if (this.form.equals("nfkc")) { cur #= cur.nfkc(); }
-        else if (this.form.equals("nfkd")) { cur #= cur.nfkd(); }
-        if (this.stripIgn) { cur #= cur.stripDefaultIgnorables(); }
-        if (this.fold) { cur #= cur.caseFold(); }
+        if (this.form.equals("nfc")) { cur #= Analyzer.staked(cur.nfc()); }
+        else if (this.form.equals("nfd")) { cur #= Analyzer.staked(cur.nfd()); }
+        else if (this.form.equals("nfkc")) { cur #= Analyzer.staked(cur.nfkc()); }
+        else if (this.form.equals("nfkd")) { cur #= Analyzer.staked(cur.nfkd()); }
+        if (this.stripIgn) {
+            cur #= Analyzer.staked(cur.stripDefaultIgnorables());
+        }
+        if (this.fold) { cur #= Analyzer.staked(cur.caseFold()); }
         return #cur;
     }
 
