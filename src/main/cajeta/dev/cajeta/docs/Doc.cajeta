@@ -343,7 +343,11 @@ public final class Doc {
 
     // ---- provenance (§6.2, §13.1) ------------------------------------
 
-    /** The section path of `nid`, outermost first, `" > "`-joined. */
+    /**
+     * The section path of `nid`, outermost first, `" > "`-joined, `""`
+     * when no ancestor is a titled section. The empty answer gets its
+     * own binding because the seed literal has no title at the merge.
+     */
     public #String sectionPath(int64 nid) {
         this.checkNid(nid);
         // Collect ancestor section titles by walking up.
@@ -355,6 +359,10 @@ public final class Doc {
                 else { out = this.title[cur] + " > " + out; }
             }
             cur = this.parent[cur];
+        }
+        if (out.equals("")) {
+            String e = "";
+            return #e;
         }
         return #out;
     }
