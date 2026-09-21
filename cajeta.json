@@ -22,7 +22,7 @@
 
     "details": {
         "name":               "dev.cajeta.docs",
-        "version":            "0.1.0",
+        "version":            "0.1.1",
         "description":        "cajeta-docs — the text/document library: structured document model, format readers, tokenization, TF-IDF, chunking",
         "license":            "Apache-2.0",
         "authors":            ["Julian Klappenbach"],
