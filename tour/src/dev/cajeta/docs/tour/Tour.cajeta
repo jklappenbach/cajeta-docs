@@ -34,17 +34,17 @@ public final class Tour {
         b.pageBreak();
         int64 q = b.paragraph("Replication succeeded on page two.");
         b.endSection();
-        Doc d = b.build();
+        Doc d #= b.build();
         Tour.check(d.parseCount() == (int64) 1,
             "one parse serves every granularity");
         Tour.check((int64) d.nodesOfKind(NodeKind.PARAGRAPH()).count() == (int64) 2,
             "granularity queries scan the arena, never re-parse");
-        Provenance pr = d.provenance(q);
+        Provenance pr #= d.provenance(q);
         Tour.check(pr.sectionPath.equals("Findings"),
             "every node resolves its section path");
         Tour.check(pr.pages[0] == (int64) 2,
             "the physical view knows which page a node is on");
-        int64[] docPages = d.pagesOf((int64) 0);
+        int64[] docPages #= d.pagesOf((int64) 0);
         Tour.check((int64) docPages.count() == (int64) 2,
             "a node spanning the break lists BOTH pages");
         return;

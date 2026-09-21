@@ -30,7 +30,7 @@ public final class Fx {
     }
 
     public static #String readText(String name) {
-        int8[] bytes = File.readAllBytes(Fx.root() + "/" + name);
+        int8[] bytes #= File.readAllBytes(Fx.root() + "/" + name);
         StringBuilder sb = heap StringBuilder();
         sb.appendBytes(bytes, (int32) 0, (int32) bytes.count());
         return sb.toString();

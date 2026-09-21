@@ -83,7 +83,7 @@ public final class Corpus {
     // a frame that then CONTINUES crashes on it (INDEX defect
     // owned-null-local-drop-crash). Here the whole frame unwinds.
     void readAndRegister(String path) {
-        int8[] bytes = File.readAllBytes(path);
+        int8[] bytes #= File.readAllBytes(path);
         Doc d #= Reader.read(path, bytes);
         int64 ver = this.set.register(#d);
         return;
