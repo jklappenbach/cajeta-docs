@@ -32,12 +32,26 @@ permissions:
 env:
   # Must match a release tag of jklappenbach/cajeta.
   #
-  # v0.17.4 is the floor for this library: it is the first release whose
-  # stdlib carries BOTH cajeta.math.optim (L-BFGS/Nelder-Mead — the MA/ARMA
-  # likelihood path is estimated through it, stdlib-completion U5) at a
-  # deterministic-compilation baseline AND the current cajeta.math surface
-  # (fft for §6.5 autocovariance, stats for test p-values). Do not pin back.
-  CAJETA_VERSION: v0.17.4
+  # v0.17.4 was the original floor: the first release whose stdlib carried
+  # BOTH cajeta.math.optim (L-BFGS/Nelder-Mead, the MA/ARMA likelihood path,
+  # stdlib-completion U5) at a deterministic-compilation baseline AND the
+  # current cajeta.math surface (fft for §6.5 autocovariance, stats for test
+  # p-values).
+  #
+  # v0.29.0 is the floor as of the v0.29.0 fleet sweep, and the old pin had
+  # already gone stale. Running ./run-tests.sh against the released v0.17.4
+  # binary stops at CsvJsonReader.cajeta:108 with
+  # CAJETA_ERROR_MEMBER_NOT_FOUND on JsonValue.object(), which is the v0.22
+  # stdlib rename this repo migrated to. Every push since that migration has
+  # been gating against a toolchain that cannot compile the tree.
+  #
+  # The dev-dependency picks the exact version. dev.cajeta.unit moves to
+  # 0.3.0 because a consumer re-checks a dependency archive's OWN sources,
+  # and building the test binary against unit 0.2.0 under v0.29.0 fails with
+  # CAJETA_ERROR_CAPTURED_BORROW_PARAM naming unit's `pred` field, a symbol
+  # this library does not contain. unit 0.3.0 is published on Olla and the
+  # suite is green against it. Do not pin back.
+  CAJETA_VERSION: v0.29.0
 
 jobs:
   build-test:
@@ -82,6 +96,13 @@ jobs:
           VERSION="$(cajeta info | awk '/^[[:space:]]*version:/{print $2; exit}')"
           if [ -z "$VERSION" ]; then
             echo "::error::could not read version from cajeta.json via 'cajeta info'" >&2
+            exit 1
+          fi
+          # Docs.version() is a second copy of the same number and nothing
+          # else reads it, so only a check keeps the two together.
+          if ! grep -q "return \"${VERSION}\";" \
+                 src/main/cajeta/dev/cajeta/docs/Docs.cajeta; then
+            echo "::error::Docs.version() disagrees with cajeta.json version ${VERSION}" >&2
             exit 1
           fi
           if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then

@@ -38,7 +38,7 @@
         "dependencies": {},
 
         "dev-dependencies": {
-            "dev.cajeta.unit": "0.2.0"
+            "dev.cajeta.unit": "0.3.0"
         },
 
         "repositories": [
@@ -87,7 +87,7 @@
         "clean": {
             "description": "Remove build outputs",
             "actions": [
-                { "action": "exec", "command": "rm -rf build" }
+                { "action": "exec", "command": "rm", "args": ["-rf", "build"] }
             ]
         }
     }
