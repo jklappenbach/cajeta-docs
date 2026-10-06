@@ -10,7 +10,7 @@ import cajeta.lang.String;
  */
 public class DocsException extends RecoverableException {
     public DocsException(String message) {
-        this.message = message;
+        this.message #= message;
         this.cause = 0;
     }
 }
