@@ -54,7 +54,9 @@ env:
   #
   # v0.35.0 enforces the field-store rule on every dependency's sources, so
   # the pin moves together with dev.cajeta.unit 0.3.3, republished for it.
-  CAJETA_VERSION: v0.35.0
+  #
+  # v0.36.0 moves the pin together with dev.cajeta.unit 0.3.4, republished for it.
+  CAJETA_VERSION: v0.36.0
 
 jobs:
   build-test:
