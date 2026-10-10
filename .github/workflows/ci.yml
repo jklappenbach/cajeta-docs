@@ -58,7 +58,9 @@ env:
   # v0.36.0 moves the pin together with dev.cajeta.unit 0.3.4, republished for it.
   #
   # v0.38.0 moves the pin together with dev.cajeta.unit 0.3.5, republished for it.
-  CAJETA_VERSION: v0.38.0
+  #
+  # v0.39.0 moves the pin together with dev.cajeta.unit 0.3.6, republished for it.
+  CAJETA_VERSION: v0.39.0
 
 jobs:
   build-test:
